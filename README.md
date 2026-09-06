@@ -23,6 +23,21 @@ mouse & keyboard, layout landscape yang enak di layar lebar/HP):
 
 ![TUI](docs/tui.png)
 
+### Layout menyesuaikan layar (desktop & Termux)
+Layout utamanya **landscape**: pengaturan di kiri, log di kanan. TUI membaca
+ukuran terminal dan menyesuaikan sendiri:
+
+| ukuran terminal | tampilan |
+|---|---|
+| lebar ≥ 78 kolom | landscape — pengaturan di kiri, log di kanan (desktop, HP diputar) |
+| < 78 kolom | menumpuk — pengaturan di atas (ringkas), log mengisi sisanya |
+| tinggi < 28 baris | field dirapatkan jadi 1 baris, tombol aksi tetap kelihatan |
+| tinggi < 22 baris | ringkasan & bingkai dilepas, semua ruang buat log |
+
+Di Termux: **putar HP ke landscape** untuk tampilan penuh. Kalau tetap portrait,
+tekan **`t`** untuk menyembunyikan/menampilkan panel pengaturan supaya log dapat
+layar penuh. Saat layar diputar, isi log ikut dibungkus ulang (tidak kepotong).
+
 ## Mulai cepat (paling gampang)
 ```bash
 python3 main.py            # TUI full-screen (butuh: pip install textual)
