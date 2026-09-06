@@ -1,0 +1,4 @@
+# Dependency untuk mode paper trading LIVE (ambil harga real-time dari exchange).
+# Mode backtest & unit test TIDAK butuh ini — jalan pakai Python standar.
+ccxt>=4.2.0
+PyYAML>=6.0.1

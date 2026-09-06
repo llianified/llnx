@@ -1,0 +1,22 @@
+# ── Konfigurasi Bot ─────────────────────────────────────────────
+# Ganti nilai di sini sesuai kebutuhan. Semua bisa dioverride lewat CLI.
+
+exchange: binance          # exchange sumber harga (paper trading = data publik, tanpa API key)
+symbol: BTC/USDT           # pasangan yang ditradingkan
+timeframe: 1m              # ukuran candle: 1m, 5m, 15m, 1h, dst.
+
+# Strategi SMA crossover
+sma_fast: 9                # periode moving average cepat
+sma_slow: 21               # periode moving average lambat (harus > sma_fast)
+
+# Modal & biaya  ← GANTI starting_cash sesuai modalmu (mis. 5, 20, 100)
+starting_cash: 5.0         # saldo virtual awal (satuan quote, mis. USDT)
+fee_rate: 0.001            # fee per transaksi (0.001 = 0.1%, khas Binance spot)
+min_notional: 5.0          # nilai order minimum exchange; di bawah ini order ditolak (realistis)
+
+# Loop live
+poll_interval_sec: 60      # jeda antar pengecekan (detik)
+
+# File output (otomatis dibuat)
+state_file: state.json     # menyimpan saldo/posisi supaya bisa lanjut setelah restart
+trades_file: trades.csv    # riwayat transaksi
