@@ -1,4 +1,4 @@
-from bot.scan import parse_trending
+from llnx.scan import parse_trending
 
 
 def test_parse_trending_extracts_address_and_volume():

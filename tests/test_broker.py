@@ -1,5 +1,5 @@
 """Paper broker: partial orders, fees, average entry, min_notional."""
-from bot.broker import PaperBroker
+from llnx.broker import PaperBroker
 
 
 def test_buy_then_sell_applies_fees():

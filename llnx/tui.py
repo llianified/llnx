@@ -1,23 +1,31 @@
-"""Full-screen TUI: minimal, lowercase, no icons, muted colours.
+"""llnx full-screen TUI: minimal, lowercase, no icons, muted colours.
 
 The output pane fills the top of the screen and the settings sit in a bar at
 the bottom, so the layout works the same in landscape and portrait. The bar
 reflows to the terminal size: four columns of fields on wide screens, two on
 phones, and shorter widgets when the terminal is short.
 
-Needs: pip install textual   |   run: python3 main.py
+The run button drives the same loop as the CLI (`llnx.runner.run_live`), so
+whatever mode is selected -- paper, sandbox or live -- the orders go through
+the executor and its guardrails. Live mode asks you to type the phrase first.
+
+Needs: pip install textual   |   run: llnx
 """
 from __future__ import annotations
 
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
+from textual.screen import ModalScreen
+from rich.markup import escape
 from textual.widgets import (Button, Footer, Header, Input, Label, RichLog,
                              Select, Static)
 
 from .backtest import run_backtest, synthetic_prices
 from .chains import CHAINS
-from .config import Config
+from .config import Config, MODES
+from .execution import read_journal
+from .runner import CONFIRM_PHRASE, run_live
 from .strategies import build_strategy
 
 # muted palette (little colour, low saturation)
@@ -34,6 +42,11 @@ STRATEGY_LABELS = {
     "rsi": "rsi · oversold/overbought",
     "grid": "grid · dca",
 }
+MODE_LABELS = {
+    "paper": "paper · simulated",
+    "sandbox": "sandbox · testnet",
+    "live": "live · real money",
+}
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
 TOKEN_LABEL = "token address (optional → dex mode)"
 TOKEN_LABEL_SHORT = "token address (optional)"
@@ -49,7 +62,7 @@ SHORT_ROWS = 22
 # below this height the settings bar is hidden on its own (press t to show it)
 TINY_ROWS = 16
 # fields in the settings grid (the token address gets its own row below them)
-FIELD_COUNT = 7
+FIELD_COUNT = 8
 # the settings bar never shrinks below this, it would hide the buttons
 MIN_PANEL_ROWS = 6
 # log lines kept around so they can be re-wrapped when the terminal resizes
@@ -88,9 +101,39 @@ class WrapLog(RichLog):
             self.write(line)
 
 
-class BotTUI(App):
-    TITLE = "bot trading"
-    SUB_TITLE = "paper · solana · sma · rsi · grid"
+class ConfirmLive(ModalScreen[bool]):
+    """Live mode is one typed phrase away, never one stray click."""
+
+    CSS = """
+    ConfirmLive { align: center middle; background: #17181c 70%; }
+    #confirm { width: 60; max-width: 90%; height: auto; padding: 1 2;
+               background: #1d1e24; border: round #b08a8a; }
+    #confirm Label { color: #c4b9b9; padding: 0; height: auto; }
+    #confirm Input { margin-top: 1; }
+    """
+
+    BINDINGS = [("escape", "cancel", "cancel")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm"):
+            yield Label("live mode places real orders with real money.\n"
+                        f"type {CONFIRM_PHRASE} to continue, or press esc.")
+            yield Input(placeholder=CONFIRM_PHRASE, id="phrase")
+
+    def on_mount(self) -> None:
+        self.query_one("#phrase", Input).focus()
+
+    @on(Input.Submitted, "#phrase")
+    def _submitted(self, event: Input.Submitted) -> None:
+        self.dismiss(event.value.strip().upper() == CONFIRM_PHRASE)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class LlnxTUI(App):
+    TITLE = "llnx"
+    SUB_TITLE = "auto-execute · paper · sandbox · live"
 
     CSS = """
     Screen { background: #17181c; layout: vertical; }
@@ -132,7 +175,8 @@ class BotTUI(App):
              color: #b4b8c0; background: #23252c; }
     Button:hover { background: #2b2e37; }
     #backtest { background: #263029; color: #c6d2c8; }
-    #paper { background: #24272e; color: #bcc1c9; }
+    #run { background: #24272e; color: #bcc1c9; }
+    #run.-live { background: #3a2a2b; color: #d8c3c3; }
     #check { background: #24262d; color: #bcc1c9; }
     #stopbtn { background: #2c2526; color: #c4b9b9; }
 
@@ -153,7 +197,7 @@ class BotTUI(App):
 
     BINDINGS = [
         ("b", "backtest", "backtest"),
-        ("p", "paper", "paper"),
+        ("r", "run", "run"),
         ("c", "check", "check"),
         ("s", "status", "status"),
         ("x", "stop", "stop"),
@@ -164,7 +208,7 @@ class BotTUI(App):
     def __init__(self, cfg: Config) -> None:
         super().__init__()
         self.cfg = cfg
-        self._paper_running = False
+        self._trading = False
         self._app_ready = False
         self._wide = None      # set on the first layout pass
         self._compact = None
@@ -179,6 +223,10 @@ class BotTUI(App):
             yield WrapLog(id="log", markup=True, highlight=False, wrap=True)
         with Vertical(id="panel"):
             with VerticalScroll(id="fields"):
+                with Vertical(classes="field"):
+                    yield Label("mode")
+                    yield Select([(MODE_LABELS[m], m) for m in MODES],
+                                 value=self.cfg.mode, id="mode", allow_blank=False)
                 with Vertical(classes="field"):
                     yield Label("cash ($)")
                     yield Input(str(self.cfg.starting_cash), id="cash", type="number")
@@ -209,7 +257,7 @@ class BotTUI(App):
                 yield Input(self.cfg.token_address, id="token_address")
             with Vertical(id="actions"):
                 yield Button("backtest", id="backtest")
-                yield Button("paper", id="paper")
+                yield Button("run", id="run")
                 yield Button("check", id="check")
                 yield Button("stop", id="stopbtn")
         yield Footer()
@@ -256,17 +304,21 @@ class BotTUI(App):
         label = self.query("#token_label")
         if label:
             label.first(Label).update(TOKEN_LABEL if self._wide else TOKEN_LABEL_SHORT)
-        strategy = self.query("#strategy")
-        if strategy:
-            select = strategy.first(Select)
-            names = list(STRATEGY_LABELS)
-            current = select.value if select.value in names else names[0]
-            select.set_options([(STRATEGY_LABELS[n] if self._wide else n, n)
-                                for n in names])
-            # set_options keeps the old text on screen when the value does not
-            # change, so move the value away and back to redraw it
-            select.value = next(n for n in names if n != current)
-            select.value = current
+        self._relabel_select("#strategy", STRATEGY_LABELS)
+        self._relabel_select("#mode", MODE_LABELS)
+
+    def _relabel_select(self, selector: str, labels: dict) -> None:
+        node = self.query(selector)
+        if not node:
+            return
+        select = node.first(Select)
+        names = list(labels)
+        current = select.value if select.value in names else names[0]
+        select.set_options([(labels[n] if self._wide else n, n) for n in names])
+        # set_options keeps the old text on screen when the value does not
+        # change, so move the value away and back to redraw it
+        select.value = next(n for n in names if n != current)
+        select.value = current
 
     def _auto_hide_panel(self, height: int) -> None:
         """On a very short terminal the bar would leave no room for output."""
@@ -313,17 +365,22 @@ class BotTUI(App):
             return f"[{MAUVE}]{c.chain} {short}[/]"
         return f"[{V}]{c.symbol.lower()}[/]"
 
+    def _mode_tag(self) -> str:
+        colour = {"paper": DIM, "sandbox": WARN, "live": NEG}[self.cfg.mode]
+        auto = "" if self.cfg.auto_execute else " (signals only)"
+        return f"[{colour}]{self.cfg.mode}{auto}[/]"
+
     def _summary(self) -> str:
         c = self.cfg
         sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
         tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
         d = f"  [{DIM}]·[/]  "
         if not self._wide:  # two short lines instead of one long, wrapped one
-            return (f"{self._market()} [{DIM}]·[/] {c.timeframe} [{DIM}]·[/] "
-                    f"[{A}]{c.strategy}[/]\n"
+            return (f"{self._mode_tag()} [{DIM}]·[/] {self._market()} [{DIM}]·[/] "
+                    f"{c.timeframe} [{DIM}]·[/] [{A}]{c.strategy}[/]\n"
                     f"[{DIM}]cash[/] [{V}]{c.starting_cash:g}[/] [{DIM}]·[/] "
                     f"sl [{V}]{sl}[/] [{DIM}]·[/] tp [{V}]{tp}[/]")
-        return (f"[{A}]bot trading[/]{d}cash [{V}]{c.starting_cash:g}[/]{d}"
+        return (f"[{A}]llnx[/]{d}{self._mode_tag()}{d}cash [{V}]{c.starting_cash:g}[/]{d}"
                 f"{self._market()} [{DIM}]·[/] {c.timeframe}{d}strategy "
                 f"[{A}]{c.strategy}[/]{d}sl [{V}]{sl}[/] · tp [{V}]{tp}[/]")
 
@@ -343,11 +400,19 @@ class BotTUI(App):
             symbol=(self.query_one("#symbol", Input).value or self.cfg.symbol).upper(),
             timeframe=self.query_one("#timeframe", Select).value,
             strategy=self.query_one("#strategy", Select).value,
+            mode=self.query_one("#mode", Select).value,
             stop_loss_pct=num("#sl", 0.0),
             take_profit_pct=num("#tp", 0.0),
             chain=self.query_one("#chain", Select).value,
             token_address=self.query_one("#token_address", Input).value.strip())
         self._refresh_summary()
+        self._mark_live()
+
+    def _mark_live(self) -> None:
+        """The run button wears the mode, so live never looks like paper."""
+        button = self.query("#run")
+        if button:
+            button.first(Button).set_class(self.cfg.mode == "live", "-live")
 
     @property
     def logbox(self) -> WrapLog:
@@ -358,14 +423,15 @@ class BotTUI(App):
 
     def on_mount(self) -> None:
         self._apply_layout(self.size.width, self.size.height)
+        self._mark_live()
         self.call_after_refresh(self._post_welcome)
 
     def _post_welcome(self) -> None:
         self._app_ready = True
-        self._log(f"[{A}]welcome.[/] set things up below, then click backtest "
-                  "(or press b).")
-        self._log(f"[{DIM}]backtests run offline. paper trading needs a "
-                  "connection.[/]")
+        self._log(f"[{A}]llnx.[/] set things up below, then backtest (b) or "
+                  "run (r).")
+        self._log(f"[{DIM}]run executes orders for real in the selected mode. "
+                  "paper is simulated, live is not.[/]")
 
     # ── actions ─────────────────────────────────────────────────
     @on(Select.Changed)
@@ -396,55 +462,48 @@ class BotTUI(App):
                   f"[{DIM}]buy&hold[/] [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
         self._log(f"[{DIM}]  (a backtest is no promise of live results)[/]")
 
-    @on(Button.Pressed, "#paper")
-    def action_paper(self) -> None:
+    @on(Button.Pressed, "#run")
+    def action_run(self) -> None:
         self._sync_cfg()
-        if self._paper_running:
-            self._log(f"[{DIM}]paper trading is already running.[/]")
+        if self._trading:
+            self._log(f"[{DIM}]already running (stop button / press x).[/]")
             return
-        self._paper_running = True
-        self._log(f"[{A}]paper trading started[/] "
+        if self.cfg.mode == "live":
+            self.push_screen(ConfirmLive(), self._live_confirmed)
+        else:
+            self._start_run()
+
+    def _live_confirmed(self, ok: bool) -> None:
+        if ok:
+            self._start_run(confirmed=True)
+        else:
+            self._log(f"[{DIM}]live mode cancelled — nothing was sent.[/]")
+
+    def _start_run(self, confirmed: bool = False) -> None:
+        self._trading = True
+        colour = NEG if self.cfg.mode == "live" else A
+        self._log("")
+        self._log(f"[{colour}]{self.cfg.mode} run started[/] "
                   f"[{DIM}](stop button / press x)[/]")
-        self._paper_worker()
+        self._run_worker(confirmed)
 
     @work(thread=True, exclusive=True)
-    def _paper_worker(self) -> None:
-        from .broker import PaperBroker
-        from .engine import TradingEngine
-        from .feeds import build_feed
-        from .risk import RiskManager
-        import time as _t
-        cfg = self.cfg
+    def _run_worker(self, confirmed: bool = False) -> None:
+        """One worker for every mode -- it drives the same loop as the CLI."""
+        def log(line: str = "") -> None:
+            # runner output is plain text and full of [tags], so it is escaped
+            self.call_from_thread(self._log, escape(str(line)))
+
         try:
-            strat = build_strategy(cfg.strategy, cfg)
-            broker = PaperBroker(fee_rate=cfg.fee_rate, min_notional=cfg.min_notional,
-                                 cash=cfg.starting_cash)
-            feed, symbol = build_feed(cfg)
-            eng = TradingEngine(strat, broker, cfg.starting_cash,
-                                risk=RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct),
-                                symbol=symbol)
+            run_live(self.cfg, confirmed=confirmed, log=log,
+                     should_run=lambda: self._trading)
+        except SystemExit as e:
+            log(f"stopped: {e}")
         except Exception as e:
-            self.call_from_thread(self._log, f"[{NEG}]cannot start:[/] {e!r}")
-            self._paper_running = False
-            return
-        while self._paper_running:
-            try:
-                closes = feed.fetch_closes(limit=strat.warmup + 3)
-                price = feed.fetch_price()
-                res = eng.step(closes, price)
-                mark = (f"  [{A}]{res.executed.side.lower()} @ {price:.4g}[/] "
-                        f"[{DIM}]({res.executed.reason})[/]" if res.executed else "")
-                self.call_from_thread(
-                    self._log,
-                    f"[{DIM}]{_t.strftime('%H:%M:%S')}[/] price={price:.4g} "
-                    f"signal={res.decision.action.lower()} "
-                    f"equity=[{V}]{res.equity:.4f}[/]{mark}")
-            except Exception as e:
-                self.call_from_thread(self._log, f"[{NEG}]tick error:[/] {e!r}")
-            for _ in range(cfg.poll_interval_sec):
-                if not self._paper_running:
-                    break
-                _t.sleep(1)
+            self.call_from_thread(self._log, f"[{NEG}]run failed:[/] {e!r}")
+        finally:
+            self._trading = False
+            self.call_from_thread(self._log, f"[{DIM}]run finished.[/]")
 
     @on(Button.Pressed, "#check")
     def action_check(self) -> None:
@@ -472,22 +531,39 @@ class BotTUI(App):
 
     @on(Button.Pressed, "#stopbtn")
     def action_stop(self) -> None:
-        if self._paper_running:
-            self._paper_running = False
-            self._log(f"[{NEG}]paper trading stopped.[/]")
+        if self._trading:
+            self._trading = False
+            self._log(f"[{NEG}]stopping after this tick...[/]")
 
     def action_status(self) -> None:
         import json, os
         self._sync_cfg()
-        self._log(f"[{A}]status[/]")
+        self._log("")
+        self._log(f"[{A}]status[/] · {self._mode_tag()}")
         if os.path.exists(self.cfg.state_file):
             with open(self.cfg.state_file) as fh:
                 st = json.load(fh)
             self._log(f"  [{DIM}]cash[/] {st.get('cash',0):.4f}   "
-                      f"[{DIM}]position[/] {st.get('position',0):.8f}")
+                      f"[{DIM}]position[/] {st.get('position',0):.8f}   "
+                      f"[{DIM}]entry[/] {st.get('avg_entry',0):.6g}")
+            session = st.get("session") or {}
+            if session.get("trades_today"):
+                self._log(f"  [{DIM}]today[/] {session['trades_today']} trades")
+            if session.get("halt_reason"):
+                self._log(f"  [{NEG}]halted:[/] {escape(session['halt_reason'])}")
         else:
             self._log(f"  [{DIM}]no saved state yet.[/]")
+        rows = read_journal(self.cfg.orders_file, limit=5)
+        if rows:
+            self._log(f"  [{DIM}]last orders[/]")
+        for r in rows:
+            colour = {"filled": POS, "blocked": WARN, "failed": NEG}.get(
+                r.get("status"), DIM)
+            note = escape(r.get("reason") or r.get("error") or "")
+            self._log(f"   [{colour}]{r.get('status','?'):<8}[/] "
+                      f"{r.get('side','?').lower()} {r.get('amount',0):.6g} @ "
+                      f"{r.get('price',0):.6g} [{DIM}]{note}[/]")
 
 
 def run_tui(cfg: Config) -> None:
-    BotTUI(cfg).run()
+    LlnxTUI(cfg).run()

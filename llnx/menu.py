@@ -1,11 +1,13 @@
-"""Text menu: everything the bot does, without memorising CLI flags."""
+"""Text menu: everything llnx does, without memorising CLI flags."""
 from __future__ import annotations
 
 import json
 import os
 
 from .backtest import run_backtest, synthetic_prices
-from .config import Config
+from .config import MODES, Config
+from .execution import read_journal
+from .guards import build_guardrails
 from .strategies import AVAILABLE
 
 LINE = "=" * 58
@@ -34,21 +36,24 @@ def _ask_int(prompt, default):
 
 def _header(cfg: Config):
     print("\n" + LINE)
-    print("  BOT TRADING - MAIN MENU")
+    print("  LLNX - MAIN MENU")
     print(LINE)
+    execute = "auto-execute ON" if cfg.auto_execute else "signals only"
+    print(f"  mode      : {cfg.mode.upper()}  ({execute})")
     print(f"  cash      : {cfg.starting_cash:g} ({cfg.symbol})")
     print(f"  timeframe : {cfg.timeframe}   strategy: {cfg.strategy}")
     sl = f"{cfg.stop_loss_pct*100:g}%" if cfg.stop_loss_pct else "off"
     tp = f"{cfg.take_profit_pct*100:g}%" if cfg.take_profit_pct else "off"
     print(f"  stop-loss : {sl}   take-profit: {tp}")
+    print(f"  guards    : {build_guardrails(cfg).describe()}")
     print(LINE)
     print("  1) cash & market")
     print("  2) strategy & its parameters")
     print("  3) stop-loss / take-profit")
     print("  4) run a BACKTEST (offline, no internet)")
-    print("  5) start PAPER TRADING (live prices, simulated orders)")
-    print("  6) status & trade history")
-    print("  7) real-money mode (advanced, be careful)")
+    print(f"  5) START TRADING in {cfg.mode.upper()} mode")
+    print("  6) status, orders & trade history")
+    print("  7) execution mode & guardrails")
     print("  0) quit")
     print(LINE)
 
@@ -137,18 +142,49 @@ def _show_status(cfg: Config):
             print("   ", row)
     else:
         print("  no trades yet.")
+    orders = read_journal(cfg.orders_file, limit=8)
+    if orders:
+        print(f"  last {len(orders)} order attempts ({cfg.orders_file}):")
+        for o in orders:
+            note = o.get("reason") or o.get("error") or ""
+            print(f"    {o.get('ts','')}  {o.get('status','?'):<8} "
+                  f"{o.get('side','?'):<4} {o.get('amount',0):.8g} @ "
+                  f"{o.get('price',0):.8g}  {note}")
     input("  press Enter to go back...")
 
 
-def _real_mode(cfg: Config) -> Config:
-    print("\n" + "!" * 58)
-    print("  REAL MONEY MODE - orders spend real funds (or sandbox money).")
-    print("  Keys come from the environment: EXCHANGE_API_KEY, EXCHANGE_API_SECRET")
-    print("  Start with the sandbox. Really.")
-    print("!" * 58)
-    on = _ask("enable real mode? (y/n)", "n").lower().startswith("y")
-    sandbox = _ask("use sandbox/testnet? (y/n)", "y").lower().startswith("y")
-    return cfg.with_overrides(live_real=on, live_sandbox=sandbox)
+def _edit_execution(cfg: Config) -> Config:
+    print("\n-- execution mode --")
+    print("  paper   : simulated orders, no money, no keys")
+    print("  sandbox : exchange testnet, or a Solana dry run on real quotes")
+    print("  live    : REAL orders with REAL money")
+    print("  keys always come from the environment, never from config.yaml:")
+    print("    EXCHANGE_API_KEY / EXCHANGE_API_SECRET  (exchange)")
+    print("    SOLANA_PRIVATE_KEY / SOLANA_RPC_URL     (solana swaps)")
+    mode = _ask(f"mode ({'/'.join(MODES)})", cfg.mode).lower()
+    if mode not in MODES:
+        print(f"  ! unknown mode '{mode}', keeping {cfg.mode}")
+        mode = cfg.mode
+    auto = _ask("execute orders automatically? (y/n)",
+                "y" if cfg.auto_execute else "n").lower().startswith("y")
+
+    print("\n-- guardrails (0 = off) --")
+    cfg = cfg.with_overrides(
+        mode=mode, auto_execute=auto,
+        max_daily_loss_pct=_ask_float("stop buying after a daily loss of (0.10 = 10%)",
+                                      cfg.max_daily_loss_pct),
+        max_trades_per_day=_ask_int("max trades per day", cfg.max_trades_per_day),
+        cooldown_sec=_ask_int("cooldown between orders (seconds)", cfg.cooldown_sec),
+        max_order_pct=_ask_float("max size of one order (0.25 = 25% of equity)",
+                                 cfg.max_order_pct),
+        kill_switch_file=_ask("kill switch file (touch it to stop the bot)",
+                              cfg.kill_switch_file))
+    if mode == "live":
+        print("\n" + "!" * 58)
+        print("  LIVE MODE ARMED. The next run places real orders.")
+        print("  You will be asked to type the confirmation phrase.")
+        print("!" * 58)
+    return cfg
 
 
 def run_menu(cfg: Config) -> None:
@@ -170,7 +206,7 @@ def run_menu(cfg: Config) -> None:
             elif choice == "6":
                 _show_status(cfg)
             elif choice == "7":
-                cfg = _real_mode(cfg)
+                cfg = _edit_execution(cfg)
             elif choice == "0":
                 print("  bye")
                 return

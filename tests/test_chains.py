@@ -1,5 +1,5 @@
 import pytest
-from bot.chains import CHAINS, get_chain
+from llnx.chains import CHAINS, get_chain
 
 
 def test_registry_has_solana_and_evm():

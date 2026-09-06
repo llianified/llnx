@@ -1,9 +1,9 @@
 """Solana feed logic: pure functions, no network."""
 import pytest
 
-from bot.config import Config
-from bot.feeds import build_feed
-from bot.solana_feed import (SolanaDataFeed, closes_from_ohlcv, gt_timeframe,
+from llnx.config import Config
+from llnx.feeds import build_feed
+from llnx.solana_feed import (SolanaDataFeed, closes_from_ohlcv, gt_timeframe,
                              pick_pair)
 
 
@@ -40,7 +40,7 @@ def test_feed_init_is_offline():
 
 
 def test_build_feed_picks_dex_when_mint_set():
-    from bot.dexfeed import DexFeed
+    from llnx.dexfeed import DexFeed
     cfg = Config(solana_mint="So11111111111111111111111111111111111111112")
     feed, symbol = build_feed(cfg)  # connect() fails quietly offline -> still a DEX feed
     assert isinstance(feed, DexFeed)

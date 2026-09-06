@@ -1,21 +1,112 @@
-# Crypto Trading Bot — paper / real (SMA · RSI · Grid/DCA)
+# llnx — a crypto bot that places its own orders
 
-A crypto trading bot for **learning and testing strategies**, with a TUI and a
-text menu so you never have to memorise flags. It runs in **paper mode** by
-default: real-time prices from the exchange, fake orders against a virtual
-balance. **No risk, no real money, no API key.**
+**llnx** watches a market, decides, and then actually sends the order. Paper,
+exchange sandbox or real money — same loop, same code, one setting apart. It
+ships with a TUI, a text menu and a CLI, and the core runs on the Python
+standard library alone.
+
+```bash
+pip install textual
+python3 main.py                     # TUI: pick a mode, press run
+```
 
 > **About tiny accounts.** $5–$20 is practice money, not a money machine. Fees
 > (~0.1% per side), spread and exchange minimums (~$5–10) eat most of the
 > profit at that size. Test on paper first, and never trade money you cannot
 > afford to lose.
 
-## Features
-1. **Global stop-loss and take-profit** — sell automatically at ±X%.
-2. **Three strategies**: `sma` (crossover), `rsi` (oversold/overbought), `grid` (DCA).
-3. **Telegram notifications** on every trade (optional).
-4. **Real-money bridge** through `ccxt`, sandbox/testnet by default.
-- Text menu, offline backtests, state persistence, unit tests.
+## The three modes
+
+| mode | what happens | what you need |
+|---|---|---|
+| `paper` | real prices, simulated orders against a virtual balance | nothing |
+| `sandbox` | exchange testnet orders, or a Solana dry run on real Jupiter quotes | testnet keys (CEX) |
+| `live` | **real orders, real money** | API keys / a funded wallet |
+
+```bash
+python3 main.py run --mode paper
+python3 main.py run --mode sandbox
+python3 main.py run --mode live            # asks you to type I UNDERSTAND
+```
+
+Nothing goes out until you pick a non-paper mode, and live mode always asks
+for the phrase — in the TUI, the menu and the CLI alike.
+
+## How an order actually gets placed
+
+```
+feed → strategy → decision → risk (SL/TP) → guardrails → broker → venue
+                                                 │           │
+                                                 │           └─ real fill: amount,
+                                                 │              price and fee come
+                                                 │              back from the venue
+                                                 └─ orders.jsonl: every attempt,
+                                                    filled, blocked or failed
+```
+
+* **The fill is read back, never assumed.** On an exchange the order is polled
+  until it is closed and the booked price is the average fill price, with the
+  fee converted to the quote currency. On Solana the price comes from the
+  Jupiter quote itself, and the swap is **confirmed on chain** before it is
+  booked as a trade — an unconfirmed swap is not a trade.
+* **Balances come from the venue.** After every live order — and after every
+  failure — llnx re-reads the balance instead of guessing. A restart hands the
+  average entry price back to the broker so the stop-loss still has something
+  to measure against.
+* **A failed order is never blindly retried.** A market order that errored may
+  still have reached the venue; the next tick decides again with fresh prices.
+
+## Guardrails
+
+An auto-executing bot needs a hand on the brake. All of these live in
+`config.yaml` and are checked before every order (0 = off):
+
+| setting | what it does |
+|---|---|
+| `max_daily_loss_pct` | stops **buying** after -X% on the day; exits still work |
+| `max_trades_per_day` | caps how many trades a day it may make |
+| `cooldown_sec` | minimum seconds between orders |
+| `max_order_pct` | shrinks any order bigger than X% of equity |
+| `max_consecutive_failures` | stands the bot down after N failed orders in a row |
+| `kill_switch_file` | the file that stops everything |
+
+Exits are deliberately not blocked by the risk limits: after a bad day the
+stop-loss is the last thing you want disabled. The kill switch and the failure
+halt stop everything, because at that point the venue or your intent says so.
+
+### The kill switch
+
+```bash
+python3 main.py stop      # creates STOP; a running bot quits within one tick
+python3 main.py resume    # removes it
+```
+
+Works from any terminal, over SSH, from your phone — the running bot checks the
+file every tick.
+
+### Signals only
+
+Want the old behaviour back for a while? `auto_execute: false`, or:
+
+```bash
+python3 main.py run --signals-only
+```
+Everything runs and gets journalled, nothing is sent.
+
+## What it did while you were away
+
+Every order attempt is appended to `orders.jsonl` — filled, blocked, rejected
+or failed, with the signal that caused it:
+
+```bash
+python3 main.py status --orders 20
+```
+```
+last 3 order attempts:
+  2026-01-04T09:15:02+00:00  filled   BUY  0.00043 @ 68120.5  golden cross 9/21
+  2026-01-04T09:41:02+00:00  filled   SELL 0.00043 @ 67980.0  STOP-LOSS -2%
+  2026-01-04T10:02:03+00:00  blocked  BUY  0 @ 67990.0        cooldown: 44s to go
+```
 
 ## Install
 
@@ -34,13 +125,20 @@ Everything else is optional and only pulled in if you actually use it:
 | `textual` | the full-screen TUI (`python3 main.py`) |
 | `ccxt`    | exchanges other than Binance, and real CEX orders |
 | `PyYAML`  | stricter `config.yaml` parsing (a built-in reader is used otherwise) |
-| `solders` | real Solana swaps through Jupiter (experimental) |
+| `solders` | real Solana swaps through Jupiter |
+
+Installing it as a package gives you the `llnx` command:
+
+```bash
+pip install -e ".[tui]"
+llnx run --mode paper
+```
 
 ### Termux (Android)
 
 ```bash
 pkg install python git
-git clone <this repo> && cd no-name-yet
+git clone <this repo> && cd llnx
 pip install textual        # ~20 MB, no compiler needed
 python3 main.py
 ```
@@ -50,7 +148,7 @@ That is the whole install. Notes for Termux specifically:
 - **Do not install ccxt** unless you need a non-Binance exchange. It drags in
   aiohttp and cryptography, which build from source on Android and take ages.
   Binance price data goes through plain HTTPS from the standard library.
-- **PyYAML is not required** either. Without it the bot reads `config.yaml`
+- **PyYAML is not required** either. Without it llnx reads `config.yaml`
   with a small built-in parser.
 - Prefer `pkg install python` over pyenv or a venv; the system Python is fine.
 - No textual? `python3 main.py menu` gives the same features as plain text.
@@ -81,33 +179,31 @@ Termux portrait (45x55):
 
 ![TUI Termux portrait](docs/tui_termux_portrait.png)
 
-Press `t` to hide the settings bar and give the output the whole screen.
-Rotating the phone re-wraps the log instead of leaving old lines clipped.
-
-## Quick start
-```bash
-python3 main.py            # full-screen TUI (needs: pip install textual)
-python3 main.py menu       # plain text menu (works without textual)
-```
-Both let you set the cash and market, pick a strategy and its parameters, set
-stop-loss/take-profit, run a backtest, start paper trading and read the history.
+Keys: `b` backtest · `r` run · `c` safety check · `s` status · `x` stop ·
+`t` settings · `q` quit. The run button turns red in live mode, and the mode
+sits in the header the whole time.
 
 ## Command line
+
 ```bash
 # Backtest (no internet, no packages)
 python3 main.py backtest --strategy sma  --cash 20
-python3 main.py backtest --strategy rsi  --cash 20
-python3 main.py backtest --strategy grid --cash 20
-python3 main.py backtest --strategy sma  --sl 0.03 --tp 0.10   # with SL/TP
+python3 main.py backtest --strategy rsi  --sl 0.03 --tp 0.10
 python3 main.py backtest --csv prices.csv                      # your own data
 
-# Paper trading (live prices, simulated orders)
-python3 main.py paper --strategy grid --symbol ETH/USDT --cash 10
+# Trade
+python3 main.py run --mode paper --strategy grid --symbol ETH/USDT --cash 10
+python3 main.py run --mode live --yes --max-order 0.25 --cooldown 300
+python3 main.py run --signals-only                             # decide, send nothing
 
-# State and trade history
-python3 main.py status
+# Control and history
+python3 main.py stop / resume
+python3 main.py status --orders 20
 ```
-Stop with `Ctrl+C`; the state is saved to `state.json` and picked up next time.
+
+Guardrails have flags too: `--max-daily-loss`, `--max-trades`, `--cooldown`,
+`--max-order`. Stop with `Ctrl+C`; state goes to `state.json` and is picked up
+next time, daily counters included.
 
 ## Multi-chain (Solana + EVM), scanning and safety checks
 
@@ -127,35 +223,26 @@ python3 main.py scan --chain solana --limit 10
 python3 main.py scan --chain base --limit 10 --safety
 ```
 
-**Paper-trade a DEX token** on any chain — paste the token address:
+**Trade a DEX token** on any chain — paste the token address:
 ```bash
-python3 main.py paper --chain bsc --token <CONTRACT> --cash 20 --strategy rsi
+python3 main.py run --chain bsc --token <CONTRACT> --cash 20 --strategy rsi
 ```
-Before going live the bot runs the safety check itself (when `safety_check: true`).
+Before trading a token llnx runs the safety check itself (`safety_check: true`),
+and a token that looks dangerous cancels live mode outright.
 
-**Real Solana swaps through Jupiter** — experimental, dry-run by default:
+**Real Solana swaps through Jupiter:**
 ```bash
-# dry run: real Jupiter quotes (real slippage), nothing is sent
-python3 main.py paper --token <MINT> --real
-# actually send transactions (needs env vars + solders, asks for confirmation):
+# sandbox: real Jupiter quotes (real slippage), nothing is signed or sent
+python3 main.py run --token <MINT> --mode sandbox
+
+# live: signs, sends and waits for on-chain confirmation
+pip install solders
 export SOLANA_PRIVATE_KEY="..."   # base58, never commit this
 export SOLANA_RPC_URL="https://..."
-pip install solders
-python3 main.py paper --token <MINT> --real --mainnet
+python3 main.py run --token <MINT> --mode live
 ```
-
-## Solana / meme tokens (paper)
-Besides exchanges, the bot can watch **Solana DEX tokens** (Raydium, Orca,
-pump.fun) for paper trading — paste the mint address and go. No wallet, no API
-key. Prices come from **DexScreener** (USD) and candles from **GeckoTerminal**
-(USD), then run through the same engine and strategies.
-
-```bash
-# in the TUI: fill in the token address field, or from the CLI:
-python3 main.py paper --mint <TOKEN_MINT_ADDRESS> --cash 20 --strategy rsi
-# BONK, for example:
-python3 main.py paper --mint DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --cash 20
-```
+The wallet's USDC and token balances are read straight from the chain, and
+"sell everything" spends the exact base units the wallet holds.
 
 > **Meme coins are gambling.** Most go to zero, many are rug pulls or
 > honeypots (you can buy, you cannot sell), liquidity is thin (heavy slippage)
@@ -171,49 +258,47 @@ python3 main.py paper --mint DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --cash
 
 All parameters live in `config.yaml`, or can be set from the menu and the TUI.
 
-## Telegram notifications (optional)
-1. Create a bot with **@BotFather** and copy the token. Get your chat id from
-   **@userinfobot**.
-2. Set them in the environment (safer than writing them to a file):
+## Keys
+
+Keys never live in `config.yaml`. They come from the environment:
+
 ```bash
-export TELEGRAM_TOKEN="123456:abc..."
+export EXCHANGE_API_KEY="..."          # exchange orders (ccxt)
+export EXCHANGE_API_SECRET="..."
+export SOLANA_PRIVATE_KEY="..."        # solana swaps (base58)
+export SOLANA_RPC_URL="https://..."
+export TELEGRAM_TOKEN="123456:abc..."  # optional notifications
 export TELEGRAM_CHAT_ID="123456789"
 ```
-With both set, every trade is sent to you automatically.
 
-## Real-money mode (advanced)
-Orders spend real funds. **Run paper and sandbox first.**
-```bash
-pip install ccxt
-export EXCHANGE_API_KEY="..."           # never commit your keys
-export EXCHANGE_API_SECRET="..."
-python3 main.py paper --real            # sandbox/testnet (fake money)
-python3 main.py paper --real --mainnet  # real money, asks for confirmation
-```
-Mainnet makes you type `I UNDERSTAND` before it starts. `CcxtBroker` is
-experimental; start in the sandbox.
+With Telegram set, every trade is sent to you as it happens — handy when the
+bot is the one pressing the buttons.
 
 ## Layout of the code
 ```
-main.py                    # entry point (TUI by default, plus subcommands)
+main.py                    # entry point (`python3 main.py`, or `llnx` installed)
 config.yaml                # every setting
-bot/
+llnx/
+  cli.py                   # subcommands: run, backtest, status, stop, resume, scan
   config.py                # config loader (PyYAML optional)
   strategies/              # indicators + strategies (sma, rsi, grid) + registry
-  broker.py                # paper broker (partial orders, average entry)
-  live_broker.py           # real-money broker via ccxt (sandbox by default)
-  risk.py                  # stop-loss / take-profit
   engine.py                # risk + strategy + broker + notifier
-  notify.py                # NullNotifier / TelegramNotifier
+  risk.py                  # stop-loss / take-profit
+  guards.py                # guardrails: daily loss, trade cap, cooldown, kill switch
+  execution.py             # the executor: guards, order journal, reconciliation
+  broker.py                # paper broker (partial orders, average entry)
+  live_broker.py           # real CEX orders via ccxt, booked from the real fill
+  jupiter_broker.py        # real Solana swaps, confirmed on chain
+  wallet.py                # solana RPC: balances, decimals, confirmation
   datafeed.py              # exchange prices: Binance over stdlib HTTPS, or ccxt
   dexfeed.py               # DEX token prices (DexScreener + GeckoTerminal)
   solana_feed.py           # compatibility shim: Solana-only DexFeed
   chains.py                # network registry (solana + evm)
   safety.py                # token safety checks (RugCheck / GoPlus)
   scan.py                  # trending token scan per chain
-  jupiter_broker.py        # real Solana swaps via Jupiter (dry run by default)
   feeds.py                 # picks the price source (exchange / DEX)
-  runner.py                # live loop + persistence
+  runner.py                # the live loop + persistence (used by CLI, menu, TUI)
+  notify.py                # NullNotifier / TelegramNotifier
   backtest.py              # backtest engine + synthetic data
   menu.py                  # plain text menu
   tui.py                   # full-screen TUI (Textual)
@@ -227,5 +312,7 @@ python3 -m pytest -q
 ```
 
 ## Warning
-This is an **educational tool**, not financial advice. Crypto trading is risky.
-Backtest results are **not** a promise of live results. Paper-trade first.
+This is an **educational tool**, not financial advice. Crypto trading is risky,
+and a bot that trades by itself can lose money by itself, faster than you can
+watch it. Backtest results are **not** a promise of live results. Start on
+paper, move to sandbox, and only then risk an amount you can afford to lose.

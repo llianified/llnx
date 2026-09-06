@@ -1,4 +1,4 @@
-# ── Trading bot configuration ───────────────────────────────────
+# ── llnx configuration ──────────────────────────────────────────
 # Every value can be overridden from the menu, the TUI or a CLI flag.
 
 # general
@@ -6,12 +6,27 @@ exchange: binance          # price source (public data, no API key needed)
 symbol: BTC/USDT           # pair to trade
 timeframe: 1m              # candle size: 1m, 5m, 15m, 1h, ...
 strategy: sma              # sma | rsi | grid
-token_address: ""          # set a token address to track it on a DEX instead
+token_address: ""          # set a token address to trade it on a DEX instead
 chain: solana              # solana | ethereum | bsc | base | arbitrum | polygon
 starting_cash: 5.0         # your capital (5, 20, 100, ...)
 fee_rate: 0.001            # fee per trade (0.001 = 0.1%)
 min_notional: 5.0          # smallest order the exchange accepts
-poll_interval_sec: 60      # seconds between price checks when live
+poll_interval_sec: 60      # seconds between price checks when running
+
+# ── auto-execution ─────────────────────────────────────────────
+# paper   : simulated orders, no money, no keys
+# sandbox : exchange testnet, or a Solana dry run on real Jupiter quotes
+# live    : REAL orders with REAL money
+mode: paper
+auto_execute: true         # false = decide and log, but send nothing
+
+# guardrails, checked before every order (0 = off)
+max_daily_loss_pct: 0.10   # stop buying after -10% on the day (exits still work)
+max_trades_per_day: 20
+cooldown_sec: 0            # minimum seconds between orders
+max_order_pct: 0.0         # 0.25 = never spend more than 25% of equity at once
+max_consecutive_failures: 3  # stand down after this many failed orders in a row
+kill_switch_file: STOP     # `llnx stop` creates it, `llnx resume` removes it
 
 # SMA crossover
 sma_fast: 9
@@ -31,15 +46,19 @@ grid_max_steps: 5          # capital split into 5 chunks
 stop_loss_pct: 0.0         # 0.05 = sell at 5% loss
 take_profit_pct: 0.0       # 0.10 = sell at 10% profit
 
+# solana swaps
+jupiter_slippage_bps: 100  # 100 = 1% max slippage on a real swap
+safety_check: true         # honeypot/authority check before trading a token
+
 # telegram notifications (env vars are safer: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
 telegram_token: ""
 telegram_chat_id: ""
 
-# real-money mode - leave this off unless you know what you are doing.
-# keys must come from the environment: EXCHANGE_API_KEY, EXCHANGE_API_SECRET
-live_real: false           # true = place real orders
-live_sandbox: true         # true = testnet/sandbox (fake money, real flow)
+# keys NEVER live here. They come from the environment:
+#   EXCHANGE_API_KEY / EXCHANGE_API_SECRET     exchange orders
+#   SOLANA_PRIVATE_KEY / SOLANA_RPC_URL        solana swaps
 
 # output files (created automatically)
 state_file: state.json
 trades_file: trades.csv
+orders_file: orders.jsonl  # every order attempt: filled, blocked or failed

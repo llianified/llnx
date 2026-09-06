@@ -1,10 +1,10 @@
 """Indicators and strategies."""
 import pytest
 
-from bot.config import Config
-from bot.strategies import (Context, SmaCrossStrategy, RsiStrategy,
+from llnx.config import Config
+from llnx.strategies import (Context, SmaCrossStrategy, RsiStrategy,
                             GridDcaStrategy, build_strategy)
-from bot.strategies.indicators import cross_signal, rsi, sma
+from llnx.strategies.indicators import cross_signal, rsi, sma
 
 
 def ctx(price, position=0.0, cash=100.0, avg_entry=0.0, last_buy=0.0, start=100.0):

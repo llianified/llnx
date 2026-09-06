@@ -44,6 +44,12 @@ class TradingEngine:
             starting_cash=self.starting_cash,
         )
 
+    def _announce(self, decision: Decision) -> None:
+        """Tell an executing broker why the order is coming, for its journal."""
+        hook = getattr(self.broker, "on_decision", None)
+        if callable(hook):
+            hook(decision)
+
     def step(self, closes: Sequence[float], price: float) -> StepResult:
         ctx = self._context(price)
         decision: Decision = Decision("HOLD")
@@ -53,12 +59,15 @@ class TradingEngine:
         if self.risk and self.risk.active:
             rd = self.risk.check(ctx)
             if rd is not None:
+                self._announce(rd)
                 executed = self.broker.sell(price)
                 decision = rd
 
         # 2) the strategy, unless risk already sold
         if executed is None:
             decision = self.strategy.evaluate(closes, ctx)
+            if decision.action in ("BUY", "SELL"):
+                self._announce(decision)
             if decision.action == "BUY":
                 executed = self.broker.buy(price, decision.quote_amount)
             elif decision.action == "SELL":
