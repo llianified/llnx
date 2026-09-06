@@ -130,7 +130,7 @@ class BotTUI(App):
     Screen.-compact Input:focus { border: none; background: #1b1d23; }
     Screen.-compact Select { height: 1; }
     Screen.-compact Select > SelectCurrent { border: none; height: 1; padding: 0 1; }
-    Screen.-compact Button { height: 1; margin: 0 1 0 0; }
+    Screen.-compact Button { height: 1; }
     Screen.-compact #btnbox { padding: 1 0 0 0; }
 
     /* ── layar benar-benar pendek (hp landscape): buang hiasan ───── */
