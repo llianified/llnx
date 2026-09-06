@@ -11,6 +11,7 @@ from textual.widgets import (Button, Footer, Header, Input, Label, RichLog,
                              Select, Static)
 
 from .backtest import run_backtest, synthetic_prices
+from .chains import CHAINS
 from .config import Config
 from .strategies import build_strategy
 
@@ -20,7 +21,8 @@ V = "#c9cdd6"     # nilai (soft)
 DIM = "#6b6f78"   # redup
 POS = "#86a789"   # hijau kalem
 NEG = "#b08a8a"   # merah kalem
-MAUVE = "#9b93b0" # penanda solana
+MAUVE = "#9b93b0" # penanda chain
+WARN = "#c9b273"  # amber kalem
 
 STRAT_LABELS = {
     "sma": "sma · crossover",
@@ -52,12 +54,14 @@ class BotTUI(App):
     Input:focus { border: round #5f767c; }
     Select { height: 3; }
     Select > SelectCurrent { color: #b4b8c0; }
-    #btnrow { height: auto; padding: 1 0 0 0; align-horizontal: center; }
-    Button { margin: 0 1; min-width: 11; border: none; color: #b4b8c0; background: #23252c; }
+    #btnbox { height: auto; padding: 1 0 0 0; }
+    Button { margin: 0 1 1 0; border: none; width: 1fr; min-width: 0;
+             color: #b4b8c0; background: #23252c; }
     Button:hover { background: #2b2e37; }
     #backtest { background: #263029; color: #c6d2c8; }
     #paper { background: #24272e; color: #bcc1c9; }
-    #stopbtn { background: #2c2526; color: #c4b9b9; min-width: 8; }
+    #check { background: #24262d; color: #bcc1c9; }
+    #stopbtn { background: #2c2526; color: #c4b9b9; }
     #main { width: 1fr; padding: 0 1; }
     #summary { height: auto; padding: 1 2; margin-bottom: 1;
                background: #1d1e24; border: round #2c2e36; color: #b4b8c0; }
@@ -67,6 +71,7 @@ class BotTUI(App):
     BINDINGS = [
         ("b", "backtest", "backtest"),
         ("p", "paper", "paper"),
+        ("c", "check", "check"),
         ("s", "status", "status"),
         ("x", "stop", "stop"),
         ("q", "quit", "keluar"),
@@ -95,8 +100,11 @@ class BotTUI(App):
             yield Label("strategi")
             yield Select([(STRAT_LABELS[n], n) for n in STRAT_LABELS],
                          value=self.cfg.strategy, id="strategy", allow_blank=False)
-            yield Label("mint solana (opsional)")
-            yield Input(self.cfg.solana_mint, id="mint")
+            yield Label("chain")
+            yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
+                         value=self.cfg.chain, id="chain", allow_blank=False)
+            yield Label("token address (opsional → mode dex)")
+            yield Input(self.cfg.token_address, id="token")
             with Horizontal(classes="row"):
                 with Vertical(classes="col"):
                     yield Label("stop-loss")
@@ -104,10 +112,13 @@ class BotTUI(App):
                 with Vertical(classes="col"):
                     yield Label("take-profit")
                     yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
-            with Horizontal(id="btnrow"):
-                yield Button("backtest", id="backtest")
-                yield Button("paper", id="paper")
-                yield Button("stop", id="stopbtn")
+            with Vertical(id="btnbox"):
+                with Horizontal(classes="row"):
+                    yield Button("backtest", id="backtest")
+                    yield Button("paper", id="paper")
+                with Horizontal(classes="row"):
+                    yield Button("check", id="check")
+                    yield Button("stop", id="stopbtn")
         with Vertical(id="main"):
             yield Static(self._summary(), id="summary")
             yield RichLog(id="log", markup=True, highlight=False, wrap=True)
@@ -119,8 +130,9 @@ class BotTUI(App):
         sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
         tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
         d = f"  [{DIM}]·[/]  "
-        if c.solana_mint:
-            market = f"[{MAUVE}]sol {c.solana_mint[:4]}…{c.solana_mint[-4:]}[/]"
+        if c.token_address:
+            a = c.token_address
+            market = f"[{MAUVE}]{c.chain} {a[:4]}…{a[-4:]}[/]"
         else:
             market = f"[{V}]{c.symbol.lower()}[/]"
         return (f"[{A}]bot trading[/]{d}modal [{V}]{c.starting_cash:g}[/]{d}"
@@ -143,7 +155,8 @@ class BotTUI(App):
             strategy=self.query_one("#strategy", Select).value,
             stop_loss_pct=num("#sl", 0.0),
             take_profit_pct=num("#tp", 0.0),
-            solana_mint=self.query_one("#mint", Input).value.strip())
+            chain=self.query_one("#chain", Select).value,
+            token_address=self.query_one("#token", Input).value.strip())
         self._refresh_summary()
 
     @property
@@ -195,7 +208,7 @@ class BotTUI(App):
         if self._paper_running:
             self.logbox.write(f"[{DIM}]paper sudah berjalan.[/]")
             return
-        if not self.cfg.solana_mint:
+        if not self.cfg.token_address:
             try:
                 import ccxt  # noqa: F401
             except ImportError:
@@ -245,6 +258,29 @@ class BotTUI(App):
                 if not self._paper_running:
                     break
                 _t.sleep(1)
+
+    @on(Button.Pressed, "#check")
+    def action_check(self) -> None:
+        self._sync_cfg()
+        if not self.cfg.token_address:
+            self.logbox.write(f"[{DIM}]isi token address dulu untuk cek keamanan.[/]")
+            return
+        self.logbox.write("")
+        self.logbox.write(f"[{A}]cek keamanan[/] · {self.cfg.chain} · "
+                          f"{self.cfg.token_address[:8]}…")
+        self._check_worker()
+
+    @work(thread=True)
+    def _check_worker(self) -> None:
+        from .safety import check_token
+        rep = check_token(self.cfg.chain, self.cfg.token_address)
+        col = {"ok": POS, "warn": WARN, "danger": NEG, "unknown": DIM}.get(rep.level, DIM)
+        self.call_from_thread(self.logbox.write,
+                              f"  status: [{col}]{rep.summary()}[/] "
+                              f"[{DIM}]({rep.source or '-'})[/]")
+        for lvl, msg in rep.flags[:8]:
+            lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
+            self.call_from_thread(self.logbox.write, f"  [{lc}]·[/] {msg}")
 
     @on(Button.Pressed, "#stopbtn")
     def action_stop(self) -> None:

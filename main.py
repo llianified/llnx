@@ -17,6 +17,7 @@ import sys
 
 from bot.backtest import run_backtest, synthetic_prices
 from bot.config import Config
+from bot.chains import CHAINS
 from bot.strategies import AVAILABLE
 
 
@@ -37,7 +38,8 @@ def _apply_overrides(cfg: Config, args) -> Config:
         sma_slow=getattr(args, "slow", None),
         stop_loss_pct=getattr(args, "sl", None),
         take_profit_pct=getattr(args, "tp", None),
-        solana_mint=getattr(args, "mint", None),
+        chain=getattr(args, "chain", None),
+        token_address=getattr(args, "token", None) or getattr(args, "mint", None),
     )
 
 
@@ -96,6 +98,39 @@ def cmd_status(cfg: Config, args) -> None:
         print("Belum ada transaksi.")
 
 
+def cmd_scan(cfg: Config, args) -> None:
+    from bot.scan import scan_trending
+    from bot.safety import check_token
+    print(f"[scan] token trending di {cfg.chain} (limit {args.limit})...")
+    try:
+        cands = scan_trending(cfg.chain, args.limit)
+    except Exception as e:
+        print(f"[error] gagal scan: {e!r}"); return
+    for i, c in enumerate(cands, 1):
+        line = (f"{i:2}. {c.name:<22} ${c.price_usd:<12.8g} "
+                f"vol24h ${c.volume_usd:,.0f}")
+        if args.safety:
+            rep = check_token(cfg.chain, c.address)
+            line += f"  | {rep.summary()}"
+        print(line)
+        print(f"     {c.address}")
+    if not cands:
+        print("  (kosong / API tidak terjangkau)")
+
+
+def cmd_check(cfg: Config, args) -> None:
+    from bot.safety import check_token
+    token = getattr(args, "token2", None) or cfg.token_address
+    if not token:
+        print("[error] kasih alamat token: --token <ADDR> (atau --token-address)")
+        return
+    print(f"[check] {cfg.chain} · {token}")
+    rep = check_token(cfg.chain, token)
+    print(f"  status: {rep.summary()}  (sumber: {rep.source or '-'})")
+    for lvl, msg in rep.flags:
+        print(f"   - [{lvl}] {msg}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default="config.yaml")
@@ -107,7 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--slow", type=int, help="SMA lambat")
     common.add_argument("--sl", type=float, help="stop-loss (mis. 0.05)")
     common.add_argument("--tp", type=float, help="take-profit (mis. 0.10)")
-    common.add_argument("--mint", help="mint address token Solana (mode paper Solana)")
+    common.add_argument("--mint", help="alias --token (mint Solana)")
+    common.add_argument("--token", help="alamat token (mode DEX paper)")
+    common.add_argument("--chain", choices=list(CHAINS), help="jaringan (default solana)")
 
     p = argparse.ArgumentParser(description="Bot trading paper/real", parents=[common])
     sub = p.add_subparsers(dest="cmd")
@@ -125,6 +162,13 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--mainnet", action="store_true", help="pakai mainnet, bukan sandbox")
 
     sub.add_parser("status", parents=[common], help="lihat state & riwayat")
+
+    sc = sub.add_parser("scan", parents=[common], help="scan token trending per chain")
+    sc.add_argument("--limit", type=int, default=10)
+    sc.add_argument("--safety", action="store_true", help="cek keamanan tiap kandidat")
+
+    ck = sub.add_parser("check", parents=[common], help="cek keamanan token (honeypot dll)")
+    ck.add_argument("--token-address", dest="token2", help="alamat token (alternatif --token)")
     return p
 
 
@@ -151,6 +195,10 @@ def main() -> None:
         cmd_paper(cfg, args)
     elif cmd == "status":
         cmd_status(cfg, args)
+    elif cmd == "scan":
+        cmd_scan(cfg, args)
+    elif cmd == "check":
+        cmd_check(cfg, args)
 
 
 if __name__ == "__main__":

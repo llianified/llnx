@@ -39,8 +39,10 @@ def test_feed_init_is_offline():
     assert f.symbol.endswith("/USD")
 
 
-def test_build_feed_picks_solana_when_mint_set():
+def test_build_feed_picks_dex_when_mint_set():
+    from bot.dexfeed import DexFeed
     cfg = Config(solana_mint="So11111111111111111111111111111111111111112")
-    feed, symbol = build_feed(cfg)  # connect() gagal diam2 (tanpa net) -> tetap objek Solana
-    assert isinstance(feed, SolanaDataFeed)
+    feed, symbol = build_feed(cfg)  # connect() gagal diam2 (tanpa net) -> tetap objek DEX
+    assert isinstance(feed, DexFeed)
+    assert feed.chain.id == "solana"
     assert symbol.endswith("/USD")

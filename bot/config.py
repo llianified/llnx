@@ -8,7 +8,11 @@ from dataclasses import dataclass, fields
 class Config:
     # umum
     exchange: str = "binance"
-    solana_mint: str = ""          # isi = mode Solana DEX (paper), pantau token ini
+    chain: str = "solana"          # solana | ethereum | bsc | base | arbitrum | polygon
+    token_address: str = ""        # isi = mode DEX (paper): pantau token ini di `chain`
+    solana_mint: str = ""          # alias lama utk token_address (chain solana)
+    safety_check: bool = True      # cek honeypot/authority sebelum live
+    jupiter_slippage_bps: int = 100  # 100 = 1% (real swap Solana)
     symbol: str = "BTC/USDT"
     timeframe: str = "1m"
     strategy: str = "sma"          # sma | rsi | grid
@@ -57,6 +61,8 @@ class Config:
             raise ValueError("fee_rate harus di rentang [0, 1)")
         if self.strategy.lower() not in ("sma", "rsi", "grid"):
             raise ValueError(f"strategy '{self.strategy}' tidak dikenal")
+        if self.solana_mint and not self.token_address:
+            self.token_address = self.solana_mint  # kompatibilitas mundur
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":

@@ -49,6 +49,43 @@ python3 main.py status
 ```
 Berhenti dengan `Ctrl+C` — state tersimpan (`state.json`), lanjut kapan saja.
 
+## Multi-chain (Solana + EVM), scan & cek keamanan
+
+Tool ini **multi-chain**: `solana`, `ethereum`, `bsc`, `base`, `arbitrum`, `polygon`.
+Untuk **paper trading, scan, dan cek keamanan** semua chain didukung. **Real swap**
+baru tersedia di **Solana (Jupiter)** — EVM real-swap belum (butuh web3+router).
+
+![multi-chain](docs/tui_multichain.png)
+
+**Cek keamanan token** (honeypot / mint & freeze authority / pajak / LP terkunci):
+```bash
+python3 main.py check --chain solana --token <MINT>     # sumber: RugCheck
+python3 main.py check --chain bsc    --token <KONTRAK>  # sumber: GoPlus
+```
+
+**Auto-scan token trending** per chain (GeckoTerminal), opsional plus cek keamanan:
+```bash
+python3 main.py scan --chain solana --limit 10
+python3 main.py scan --chain base --limit 10 --safety
+```
+
+**Paper trading token DEX** (chain apa pun) — tempel alamat token:
+```bash
+python3 main.py paper --chain bsc --token <KONTRAK> --cash 20 --strategy rsi
+```
+Sebelum live, bot otomatis menjalankan cek keamanan (bila `safety_check: true`).
+
+**Real swap Solana via Jupiter** ⚠️ eksperimental, default **dry-run**:
+```bash
+# dry-run: pakai quote Jupiter ASLI (slippage nyata) tapi TIDAK kirim transaksi
+python3 main.py paper --token <MINT> --real
+# kirim transaksi SUNGGUHAN (butuh env + solders, minta konfirmasi):
+export SOLANA_PRIVATE_KEY="..."   # base58, JANGAN commit
+export SOLANA_RPC_URL="https://..."
+pip install solders
+python3 main.py paper --token <MINT> --real --mainnet
+```
+
 ## Trading token Solana / micin (paper) 🟣
 Selain CEX, bot bisa pantau **token Solana DEX** (Raydium/Orca/pump.fun) untuk
 **paper trading** — cukup tempel **mint address** token-nya. Tanpa wallet, tanpa
@@ -112,8 +149,13 @@ bot/
   engine.py                # risk + strategi + broker + notifier
   notify.py                # NullNotifier / TelegramNotifier
   datafeed.py              # harga live via ccxt (CEX, tanpa API key)
-  solana_feed.py           # harga token Solana DEX (DexScreener + GeckoTerminal)
-  feeds.py                 # pemilih sumber data (CEX / Solana)
+  dexfeed.py               # harga token DEX multi-chain (DexScreener + GeckoTerminal)
+  solana_feed.py           # kompat: SolanaDataFeed = DexFeed khusus Solana
+  chains.py                # registry jaringan (solana + evm)
+  safety.py                # cek keamanan token (RugCheck / GoPlus)
+  scan.py                  # scan token trending per chain
+  jupiter_broker.py        # real swap Solana via Jupiter (dry-run default)
+  feeds.py                 # pemilih sumber data (CEX / DEX multi-chain)
   runner.py                # loop live + persistensi
   backtest.py              # mesin backtest + data sintetis
   menu.py                  # menu teks sederhana

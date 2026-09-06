@@ -56,6 +56,25 @@ def _confirm_real() -> bool:
 
 
 def _build_broker(cfg: Config):
+    # ── mode DEX (token_address diisi) ──
+    if cfg.token_address:
+        if not cfg.live_real:
+            return _load_paper_broker(cfg), False
+        from .chains import get_chain
+        chain = get_chain(cfg.chain)
+        if chain.kind != "solana":
+            raise SystemExit(f"[stop] Real swap {chain.name} (EVM) belum didukung — "
+                             "pakai paper. Real-execution baru tersedia untuk Solana.")
+        from .jupiter_broker import JupiterBroker
+        if not cfg.live_sandbox and not _confirm_real():
+            print("[stop] dibatalkan.")
+            sys.exit(0)
+        broker = JupiterBroker(cfg.token_address, dry_run=cfg.live_sandbox,
+                               cash=cfg.starting_cash, fee_rate=cfg.fee_rate,
+                               min_notional=cfg.min_notional,
+                               slippage_bps=cfg.jupiter_slippage_bps)
+        return broker, True
+    # ── mode CEX ──
     if not cfg.live_real:
         return _load_paper_broker(cfg), False
     from .live_broker import CcxtBroker
@@ -70,10 +89,6 @@ def _build_broker(cfg: Config):
 def run_live(cfg: Config) -> None:
     from .feeds import build_feed
 
-    if cfg.solana_mint and cfg.live_real:
-        raise SystemExit("[stop] Swap Solana (uang real) belum didukung — "
-                         "pakai paper dulu (kosongkan live_real).")
-
     strategy = build_strategy(cfg.strategy, cfg)
     broker, is_real = _build_broker(cfg)
     risk = RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct)
@@ -82,8 +97,15 @@ def run_live(cfg: Config) -> None:
     engine = TradingEngine(strategy, broker, cfg.starting_cash, risk=risk,
                            notifier=notifier, symbol=symbol)
 
-    source = "Solana DEX (DexScreener/GeckoTerminal)" if cfg.solana_mint else cfg.exchange
-    if is_real and cfg.live_sandbox:
+    if cfg.token_address:
+        from .chains import get_chain
+        source = f"{get_chain(cfg.chain).name} DEX (DexScreener/GeckoTerminal)"
+    else:
+        source = cfg.exchange
+    if is_real and cfg.token_address:
+        mode = ("SWAP SOLANA — DRY-RUN (quote asli, tx TIDAK dikirim)"
+                if cfg.live_sandbox else "!!! SWAP SOLANA SUNGGUHAN !!!")
+    elif is_real and cfg.live_sandbox:
         mode = "UANG REAL — SANDBOX/TESTNET (uang bohongan, alur asli)"
     elif is_real:
         mode = "!!! UANG SUNGGUHAN — MAINNET !!!"
@@ -100,7 +122,19 @@ def run_live(cfg: Config) -> None:
     print(f"  Cek tiap {cfg.poll_interval_sec}s. Ctrl+C untuk berhenti.")
     print("=" * 62)
     if notifier.enabled:
-        notifier.notify(f"🤖 Bot start — {mode}\n{cfg.symbol} | {strategy.describe()}")
+        notifier.notify(f"Bot start — {mode}\n{symbol} | {strategy.describe()}")
+
+    if cfg.token_address and cfg.safety_check:
+        from .safety import check_token
+        print("[safety] cek keamanan token...")
+        rep = check_token(cfg.chain, cfg.token_address)
+        print(f"[safety] {rep.summary()} (sumber: {rep.source or '-'})")
+        for lvl, msg in rep.flags[:8]:
+            print(f"   - [{lvl}] {msg}")
+        if rep.blocking and is_real:
+            raise SystemExit("[stop] token terdeteksi BAHAYA — real trading dibatalkan.")
+        if rep.blocking:
+            print("   [safety] token BAHAYA — lanjut paper saja (waspada).")
 
     run = {"go": True}
 
