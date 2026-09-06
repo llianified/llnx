@@ -160,7 +160,8 @@ Three bands, always in the same place:
 - **status** — mode, market, equity and P/L, cash, position, trades today. It
   never goes away, so you can tell at a glance what the bot is holding.
 - **log** — one row per poll: time, price, and what happened. Quiet polls stay
-  dim; fills and blocked orders are the only things that light up.
+  dim; fills and blocked orders are the only things that light up. `l` (or the
+  clear button) empties it without touching the run, the journal or the state.
 - **settings** — the bar at the bottom; press `t` to fold it away.
 
 Desktop (120x38):
@@ -195,7 +196,7 @@ Log rows are clipped, never wrapped, so a phone screen stays readable.
 Rotating the phone re-wraps the older lines instead of leaving them cut off.
 
 Keys: `b` backtest · `r` run · `c` safety check · `s` status · `x` stop ·
-`t` settings · `q` quit.
+`l` clear the log · `t` settings · `q` quit.
 
 ## Command line
 
