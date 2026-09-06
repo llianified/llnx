@@ -1,7 +1,6 @@
-"""TUI full-screen ala opencode — bisa diklik (mouse) & keyboard.
+"""tui minimalis — huruf kecil, tanpa ikon, warna kalem. bisa diklik & keyboard.
 
-Layout landscape ringkas biar nyaman di layar lebar / HP miring.
-Butuh: pip install textual   |   Jalankan: python3 main.py
+butuh: pip install textual   |   jalankan: python3 main.py
 """
 from __future__ import annotations
 
@@ -13,44 +12,64 @@ from textual.widgets import (Button, Footer, Header, Input, Label, RichLog,
 
 from .backtest import run_backtest, synthetic_prices
 from .config import Config
-from .strategies import AVAILABLE, build_strategy
+from .strategies import build_strategy
+
+# palet kalem (sedikit warna, low-saturation)
+A = "#8a9aa0"     # aksen slate
+V = "#c9cdd6"     # nilai (soft)
+DIM = "#6b6f78"   # redup
+POS = "#86a789"   # hijau kalem
+NEG = "#b08a8a"   # merah kalem
+MAUVE = "#9b93b0" # penanda solana
+
+STRAT_LABELS = {
+    "sma": "sma · crossover",
+    "rsi": "rsi · oversold/overbought",
+    "grid": "grid · dca",
+}
+TFS = ("1m", "5m", "15m", "1h", "4h")
 
 
 class BotTUI(App):
-    TITLE = "BOT TRADING"
-    SUB_TITLE = "paper · sma · rsi · grid"
+    TITLE = "bot trading"
+    SUB_TITLE = "paper · solana · sma · rsi · grid"
 
     CSS = """
-    Screen { background: #14161b; layout: horizontal; }
-    #sidebar {
-        width: 42; padding: 0 1; background: #1b1e26; border: round #3b4252;
-    }
-    #title { color: #7aa2f7; text-style: bold; padding: 0 1; }
+    Screen { background: #17181c; layout: horizontal; }
+    HeaderIcon { visibility: hidden; }
+    Header { background: #1d1e24; color: #8a9aa0; }
+    Footer { background: #1d1e24; }
+    FooterKey { background: #1d1e24; color: #6b6f78; }
+    FooterKey > .footer-key--key { color: #8a9aa0; background: #1d1e24; }
+    FooterKey > .footer-key--description { color: #6b6f78; background: #1d1e24; }
+
+    #sidebar { width: 42; padding: 0 1; background: #1d1e24; border: round #2c2e36; }
+    #title { color: #8a9aa0; padding: 0 1; }
     .col { width: 1fr; height: auto; }
     .row { height: auto; }
-    Label { color: #8b93a7; padding: 0 1; height: 1; }
-    Input { border: round #3b4252; background: #10121a; height: 3; }
-    Input:focus { border: round #7aa2f7; }
+    Label { color: #6b6f78; padding: 0 1; height: 1; }
+    Input { border: round #2c2e36; background: #14151a; color: #b4b8c0; height: 3; }
+    Input:focus { border: round #5f767c; }
     Select { height: 3; }
+    Select > SelectCurrent { color: #b4b8c0; }
     #btnrow { height: auto; padding: 1 0 0 0; align-horizontal: center; }
-    Button { margin: 0 1; min-width: 12; }
-    #backtest { background: #2e7d5b; color: #eafff3; text-style: bold; }
-    #paper { background: #3d5a99; color: #eaf1ff; text-style: bold; }
-    #stopbtn { background: #7a2e3a; color: #ffeaea; min-width: 6; }
+    Button { margin: 0 1; min-width: 11; border: none; color: #b4b8c0; background: #23252c; }
+    Button:hover { background: #2b2e37; }
+    #backtest { background: #263029; color: #c6d2c8; }
+    #paper { background: #24272e; color: #bcc1c9; }
+    #stopbtn { background: #2c2526; color: #c4b9b9; min-width: 8; }
     #main { width: 1fr; padding: 0 1; }
-    #summary {
-        height: auto; padding: 1 2; margin-bottom: 1;
-        background: #1b1e26; border: round #3b4252; color: #c0caf5;
-    }
-    #log { background: #10121a; border: round #3b4252; padding: 0 1; }
+    #summary { height: auto; padding: 1 2; margin-bottom: 1;
+               background: #1d1e24; border: round #2c2e36; color: #b4b8c0; }
+    #log { background: #14151a; border: round #2c2e36; padding: 0 1; }
     """
 
     BINDINGS = [
-        ("b", "backtest", "Backtest"),
-        ("p", "paper", "Paper"),
-        ("s", "status", "Status"),
-        ("x", "stop", "Stop"),
-        ("q", "quit", "Keluar"),
+        ("b", "backtest", "backtest"),
+        ("p", "paper", "paper"),
+        ("s", "status", "status"),
+        ("x", "stop", "stop"),
+        ("q", "quit", "keluar"),
     ]
 
     def __init__(self, cfg: Config) -> None:
@@ -62,37 +81,36 @@ class BotTUI(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with VerticalScroll(id="sidebar"):
-            yield Static("◆ PENGATURAN", id="title")
+            yield Static("pengaturan", id="title")
             with Horizontal(classes="row"):
                 with Vertical(classes="col"):
-                    yield Label("Modal ($)")
+                    yield Label("modal ($)")
                     yield Input(str(self.cfg.starting_cash), id="cash", type="number")
                 with Vertical(classes="col"):
-                    yield Label("Pasangan")
-                    yield Input(self.cfg.symbol, id="symbol")
-            yield Label("Timeframe")
-            yield Select([(t, t) for t in ("1m", "5m", "15m", "1h", "4h")],
-                         value=self.cfg.timeframe, id="timeframe", allow_blank=False)
-            yield Label("Strategi")
-            yield Select([(f"{n.upper()} — {d.split('—')[0].strip()}", n)
-                          for n, d in AVAILABLE.items()],
+                    yield Label("pasangan")
+                    yield Input(self.cfg.symbol.lower(), id="symbol")
+            yield Label("timeframe")
+            yield Select([(t, t) for t in TFS], value=self.cfg.timeframe,
+                         id="timeframe", allow_blank=False)
+            yield Label("strategi")
+            yield Select([(STRAT_LABELS[n], n) for n in STRAT_LABELS],
                          value=self.cfg.strategy, id="strategy", allow_blank=False)
-            yield Label("Mint Solana (opsional → mode paper Solana)")
+            yield Label("mint solana (opsional)")
             yield Input(self.cfg.solana_mint, id="mint")
             with Horizontal(classes="row"):
                 with Vertical(classes="col"):
-                    yield Label("Stop-loss")
+                    yield Label("stop-loss")
                     yield Input(str(self.cfg.stop_loss_pct), id="sl", type="number")
                 with Vertical(classes="col"):
-                    yield Label("Take-profit")
+                    yield Label("take-profit")
                     yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
             with Horizontal(id="btnrow"):
-                yield Button("▶ Backtest", id="backtest")
-                yield Button("● Paper", id="paper")
-                yield Button("■", id="stopbtn")
+                yield Button("backtest", id="backtest")
+                yield Button("paper", id="paper")
+                yield Button("stop", id="stopbtn")
         with Vertical(id="main"):
             yield Static(self._summary(), id="summary")
-            yield RichLog(id="log", markup=True, highlight=True, wrap=True)
+            yield RichLog(id="log", markup=True, highlight=False, wrap=True)
         yield Footer()
 
     # ── util ────────────────────────────────────────────────────
@@ -100,14 +118,14 @@ class BotTUI(App):
         c = self.cfg
         sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
         tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
-        d = "  [#565f89]·[/]  "
+        d = f"  [{DIM}]·[/]  "
         if c.solana_mint:
-            pasar = f"[b #bb9af7]SOL {c.solana_mint[:4]}…{c.solana_mint[-4:]}[/]"
+            market = f"[{MAUVE}]sol {c.solana_mint[:4]}…{c.solana_mint[-4:]}[/]"
         else:
-            pasar = f"[b]{c.symbol}[/]"
-        return (f"[b #7aa2f7]◈ BOT TRADING[/]{d}modal [b]{c.starting_cash:g}[/]{d}"
-                f"{pasar} [#565f89]·[/] {c.timeframe}{d}strategi [b #e0af68]{c.strategy.upper()}[/]"
-                f"{d}SL [b]{sl}[/] · TP [b]{tp}[/]")
+            market = f"[{V}]{c.symbol.lower()}[/]"
+        return (f"[{A}]bot trading[/]{d}modal [{V}]{c.starting_cash:g}[/]{d}"
+                f"{market} [{DIM}]·[/] {c.timeframe}{d}strategi [{A}]{c.strategy}[/]"
+                f"{d}sl [{V}]{sl}[/] · tp [{V}]{tp}[/]")
 
     def _refresh_summary(self) -> None:
         self.query_one("#summary", Static).update(self._summary())
@@ -137,10 +155,10 @@ class BotTUI(App):
 
     def _post_welcome(self) -> None:
         self._app_ready = True
-        self.logbox.write("[#7aa2f7]Selamat datang![/] Atur di kiri, lalu klik "
-                          "[b]▶ Backtest[/] (atau tekan [b]b[/]).")
-        self.logbox.write("[#565f89]Backtest jalan offline. Paper trading butuh "
-                          "koneksi + ccxt.[/]")
+        self.logbox.write(f"[{A}]selamat datang.[/] atur di kiri, lalu klik "
+                          "backtest (atau tekan b).")
+        self.logbox.write(f"[{DIM}]backtest jalan offline. "
+                          "paper trading butuh koneksi.[/]")
 
     # ── aksi ────────────────────────────────────────────────────
     @on(Select.Changed)
@@ -154,38 +172,39 @@ class BotTUI(App):
     def action_backtest(self) -> None:
         self._sync_cfg()
         self.logbox.write("")
-        self.logbox.write(f"[b #9ece6a]▶ BACKTEST[/] · "
-                          f"{build_strategy(self.cfg.strategy, self.cfg).describe()}")
+        desc = build_strategy(self.cfg.strategy, self.cfg).describe().lower()
+        self.logbox.write(f"[{A}]backtest[/] · {desc}")
         try:
             rep = run_backtest(synthetic_prices(n=500), self.cfg)
         except Exception as e:
-            self.logbox.write(f"[b red]error:[/] {e}")
+            self.logbox.write(f"[{NEG}]error:[/] {e}")
             return
-        col = "#9ece6a" if rep.return_pct >= 0 else "#f7768e"
-        bh = "#9ece6a" if rep.buy_hold_pct >= 0 else "#f7768e"
-        self.logbox.write(f"  modal awal   : [b]{rep.starting_cash:.2f}[/]")
-        self.logbox.write(f"  equity akhir : [b #e0af68]{rep.final_equity:.2f}[/]")
-        self.logbox.write(f"  transaksi    : {rep.n_trades}   fee: {rep.total_fees:.4f}")
-        self.logbox.write(f"  return       : [b {col}]{rep.return_pct:+.2f}%[/]   "
-                          f"buy&hold: [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
-        self.logbox.write("[#565f89]  (backtest bukan jaminan hasil live)[/]")
+        col = POS if rep.return_pct >= 0 else NEG
+        bh = POS if rep.buy_hold_pct >= 0 else NEG
+        self.logbox.write(f"  [{DIM}]modal awal  [/] [{V}]{rep.starting_cash:.2f}[/]")
+        self.logbox.write(f"  [{DIM}]equity akhir[/] [{V}]{rep.final_equity:.2f}[/]")
+        self.logbox.write(f"  [{DIM}]transaksi   [/] {rep.n_trades}   "
+                          f"[{DIM}]fee[/] {rep.total_fees:.4f}")
+        self.logbox.write(f"  [{DIM}]return      [/] [{col}]{rep.return_pct:+.2f}%[/]   "
+                          f"[{DIM}]buy&hold[/] [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
+        self.logbox.write(f"[{DIM}]  (backtest bukan jaminan hasil live)[/]")
 
     @on(Button.Pressed, "#paper")
     def action_paper(self) -> None:
         self._sync_cfg()
         if self._paper_running:
-            self.logbox.write("[#e0af68]paper sudah berjalan.[/]")
+            self.logbox.write(f"[{DIM}]paper sudah berjalan.[/]")
             return
         if not self.cfg.solana_mint:
             try:
                 import ccxt  # noqa: F401
             except ImportError:
-                self.logbox.write("[b red]ccxt belum terpasang.[/] "
-                                  "jalankan: pip install -r requirements.txt")
+                self.logbox.write(f"[{NEG}]ccxt belum terpasang.[/] "
+                                  "pip install -r requirements.txt")
                 return
         self._paper_running = True
-        self.logbox.write("[b #7dcfff]● PAPER TRADING dimulai[/] "
-                          "(tombol ■ / tekan x untuk stop)")
+        self.logbox.write(f"[{A}]paper trading dimulai[/] "
+                          f"[{DIM}](tombol stop / tekan x)[/]")
         self._paper_worker()
 
     @work(thread=True, exclusive=True)
@@ -205,7 +224,7 @@ class BotTUI(App):
                                 risk=RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct),
                                 symbol=symbol)
         except Exception as e:
-            self.call_from_thread(self.logbox.write, f"[b red]gagal start:[/] {e!r}")
+            self.call_from_thread(self.logbox.write, f"[{NEG}]gagal start:[/] {e!r}")
             self._paper_running = False
             return
         while self._paper_running:
@@ -213,14 +232,15 @@ class BotTUI(App):
                 closes = feed.fetch_closes(limit=strat.warmup + 3)
                 price = feed.fetch_price()
                 res = eng.step(closes, price)
-                mark = (f"  [b #7dcfff]{res.executed.side} @ {price:.2f}[/] "
-                        f"({res.executed.reason})" if res.executed else "")
+                mark = (f"  [{A}]{res.executed.side.lower()} @ {price:.4g}[/] "
+                        f"[{DIM}]({res.executed.reason})[/]" if res.executed else "")
                 self.call_from_thread(
                     self.logbox.write,
-                    f"[#565f89]{_t.strftime('%H:%M:%S')}[/] harga=[b]{price:.2f}[/] "
-                    f"sinyal={res.decision.action} equity=[#e0af68]{res.equity:.4f}[/]{mark}")
+                    f"[{DIM}]{_t.strftime('%H:%M:%S')}[/] harga={price:.4g} "
+                    f"sinyal={res.decision.action.lower()} "
+                    f"equity=[{V}]{res.equity:.4f}[/]{mark}")
             except Exception as e:
-                self.call_from_thread(self.logbox.write, f"[red]tick error:[/] {e!r}")
+                self.call_from_thread(self.logbox.write, f"[{NEG}]tick error:[/] {e!r}")
             for _ in range(cfg.poll_interval_sec):
                 if not self._paper_running:
                     break
@@ -230,19 +250,19 @@ class BotTUI(App):
     def action_stop(self) -> None:
         if self._paper_running:
             self._paper_running = False
-            self.logbox.write("[#f7768e]■ paper dihentikan.[/]")
+            self.logbox.write(f"[{NEG}]paper dihentikan.[/]")
 
     def action_status(self) -> None:
         import json, os
         self._sync_cfg()
-        self.logbox.write("[b]— status —[/]")
+        self.logbox.write(f"[{A}]status[/]")
         if os.path.exists(self.cfg.state_file):
             with open(self.cfg.state_file) as fh:
                 st = json.load(fh)
-            self.logbox.write(f"  cash={st.get('cash',0):.4f} "
-                              f"position={st.get('position',0):.8f}")
+            self.logbox.write(f"  [{DIM}]cash[/] {st.get('cash',0):.4f}   "
+                              f"[{DIM}]position[/] {st.get('position',0):.8f}")
         else:
-            self.logbox.write("  belum ada state.")
+            self.logbox.write(f"  [{DIM}]belum ada state.[/]")
 
 
 def run_tui(cfg: Config) -> None:
