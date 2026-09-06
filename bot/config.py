@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields
 class Config:
     # umum
     exchange: str = "binance"
+    solana_mint: str = ""          # isi = mode Solana DEX (paper), pantau token ini
     symbol: str = "BTC/USDT"
     timeframe: str = "1m"
     strategy: str = "sma"          # sma | rsi | grid

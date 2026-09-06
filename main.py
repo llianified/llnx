@@ -37,6 +37,7 @@ def _apply_overrides(cfg: Config, args) -> Config:
         sma_slow=getattr(args, "slow", None),
         stop_loss_pct=getattr(args, "sl", None),
         take_profit_pct=getattr(args, "tp", None),
+        solana_mint=getattr(args, "mint", None),
     )
 
 
@@ -66,11 +67,12 @@ def cmd_paper(cfg: Config, args) -> None:
     if getattr(args, "real", False):
         cfg = cfg.with_overrides(live_real=True,
                                  live_sandbox=not getattr(args, "mainnet", False))
-    try:
-        import ccxt  # noqa: F401
-    except ImportError:
-        print("[error] ccxt belum terpasang. Jalankan: pip install -r requirements.txt")
-        sys.exit(1)
+    if not cfg.solana_mint:  # mode Solana tak butuh ccxt
+        try:
+            import ccxt  # noqa: F401
+        except ImportError:
+            print("[error] ccxt belum terpasang. Jalankan: pip install -r requirements.txt")
+            sys.exit(1)
     from bot.runner import run_live
     run_live(cfg)
 
@@ -105,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--slow", type=int, help="SMA lambat")
     common.add_argument("--sl", type=float, help="stop-loss (mis. 0.05)")
     common.add_argument("--tp", type=float, help="take-profit (mis. 0.10)")
+    common.add_argument("--mint", help="mint address token Solana (mode paper Solana)")
 
     p = argparse.ArgumentParser(description="Bot trading paper/real", parents=[common])
     sub = p.add_subparsers(dest="cmd")

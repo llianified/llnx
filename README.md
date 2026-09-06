@@ -49,6 +49,27 @@ python3 main.py status
 ```
 Berhenti dengan `Ctrl+C` — state tersimpan (`state.json`), lanjut kapan saja.
 
+## Trading token Solana / micin (paper) 🟣
+Selain CEX, bot bisa pantau **token Solana DEX** (Raydium/Orca/pump.fun) untuk
+**paper trading** — cukup tempel **mint address** token-nya. Tanpa wallet, tanpa
+API key, nol risiko. Harga real-time dari **DexScreener** (USD), candle historis
+dari **GeckoTerminal** (USD), lalu diproses engine & strategi yang sama.
+
+```bash
+# di TUI: isi kolom "Mint Solana", atau lewat CLI:
+python3 main.py paper --mint <MINT_ADDRESS_TOKEN> --cash 20 --strategy rsi
+# contoh BONK:
+python3 main.py paper --mint DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --cash 20
+```
+
+> ⚠️ **Micin = judi.** Mayoritas meme coin menuju nol; banyak **rug pull /
+> honeypot** (bisa beli, tak bisa jual), likuiditas tipis (slippage besar), dan
+> **sniper/MEV bot** yang front-run. Indikator teknikal sering tak berarti pada
+> koin baru. Paper-kan dulu; jangan taruh uang yang tak siap hilang.
+>
+> **Uang real Solana (swap Jupiter) BELUM didukung** — perlu wallet, RPC, dan
+> **cek honeypot** dulu. Saat ini Solana = paper saja.
+
 ## Strategi singkat
 | Strategi | Kapan beli | Kapan jual | Cocok untuk |
 |---|---|---|---|
@@ -90,7 +111,9 @@ bot/
   risk.py                  # stop-loss / take-profit
   engine.py                # risk + strategi + broker + notifier
   notify.py                # NullNotifier / TelegramNotifier
-  datafeed.py              # harga live via ccxt (tanpa API key untuk paper)
+  datafeed.py              # harga live via ccxt (CEX, tanpa API key)
+  solana_feed.py           # harga token Solana DEX (DexScreener + GeckoTerminal)
+  feeds.py                 # pemilih sumber data (CEX / Solana)
   runner.py                # loop live + persistensi
   backtest.py              # mesin backtest + data sintetis
   menu.py                  # menu teks sederhana

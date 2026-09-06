@@ -77,6 +77,8 @@ class BotTUI(App):
             yield Select([(f"{n.upper()} — {d.split('—')[0].strip()}", n)
                           for n, d in AVAILABLE.items()],
                          value=self.cfg.strategy, id="strategy", allow_blank=False)
+            yield Label("Mint Solana (opsional → mode paper Solana)")
+            yield Input(self.cfg.solana_mint, id="mint")
             with Horizontal(classes="row"):
                 with Vertical(classes="col"):
                     yield Label("Stop-loss")
@@ -99,8 +101,12 @@ class BotTUI(App):
         sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
         tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
         d = "  [#565f89]·[/]  "
+        if c.solana_mint:
+            pasar = f"[b #bb9af7]SOL {c.solana_mint[:4]}…{c.solana_mint[-4:]}[/]"
+        else:
+            pasar = f"[b]{c.symbol}[/]"
         return (f"[b #7aa2f7]◈ BOT TRADING[/]{d}modal [b]{c.starting_cash:g}[/]{d}"
-                f"[b]{c.symbol}[/] [#565f89]·[/] {c.timeframe}{d}strategi [b #e0af68]{c.strategy.upper()}[/]"
+                f"{pasar} [#565f89]·[/] {c.timeframe}{d}strategi [b #e0af68]{c.strategy.upper()}[/]"
                 f"{d}SL [b]{sl}[/] · TP [b]{tp}[/]")
 
     def _refresh_summary(self) -> None:
@@ -118,7 +124,8 @@ class BotTUI(App):
             timeframe=self.query_one("#timeframe", Select).value,
             strategy=self.query_one("#strategy", Select).value,
             stop_loss_pct=num("#sl", 0.0),
-            take_profit_pct=num("#tp", 0.0))
+            take_profit_pct=num("#tp", 0.0),
+            solana_mint=self.query_one("#mint", Input).value.strip())
         self._refresh_summary()
 
     @property
@@ -169,12 +176,13 @@ class BotTUI(App):
         if self._paper_running:
             self.logbox.write("[#e0af68]paper sudah berjalan.[/]")
             return
-        try:
-            import ccxt  # noqa: F401
-        except ImportError:
-            self.logbox.write("[b red]ccxt belum terpasang.[/] "
-                              "jalankan: pip install -r requirements.txt")
-            return
+        if not self.cfg.solana_mint:
+            try:
+                import ccxt  # noqa: F401
+            except ImportError:
+                self.logbox.write("[b red]ccxt belum terpasang.[/] "
+                                  "jalankan: pip install -r requirements.txt")
+                return
         self._paper_running = True
         self.logbox.write("[b #7dcfff]● PAPER TRADING dimulai[/] "
                           "(tombol ■ / tekan x untuk stop)")
@@ -183,8 +191,8 @@ class BotTUI(App):
     @work(thread=True, exclusive=True)
     def _paper_worker(self) -> None:
         from .broker import PaperBroker
-        from .datafeed import CcxtDataFeed
         from .engine import TradingEngine
+        from .feeds import build_feed
         from .risk import RiskManager
         import time as _t
         cfg = self.cfg
@@ -192,10 +200,10 @@ class BotTUI(App):
             strat = build_strategy(cfg.strategy, cfg)
             broker = PaperBroker(fee_rate=cfg.fee_rate, min_notional=cfg.min_notional,
                                  cash=cfg.starting_cash)
+            feed, symbol = build_feed(cfg)
             eng = TradingEngine(strat, broker, cfg.starting_cash,
                                 risk=RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct),
-                                symbol=cfg.symbol)
-            feed = CcxtDataFeed(cfg.exchange, cfg.symbol, cfg.timeframe)
+                                symbol=symbol)
         except Exception as e:
             self.call_from_thread(self.logbox.write, f"[b red]gagal start:[/] {e!r}")
             self._paper_running = False

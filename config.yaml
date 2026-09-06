@@ -6,6 +6,7 @@ exchange: binance          # sumber harga (paper = data publik, tanpa API key)
 symbol: BTC/USDT           # pasangan yang ditradingkan
 timeframe: 1m              # ukuran candle: 1m, 5m, 15m, 1h, ...
 strategy: sma              # strategi aktif: sma | rsi | grid
+solana_mint: ""            # isi mint address token = mode PAPER Solana DEX (pantau token itu)
 starting_cash: 5.0         # ← GANTI sesuai modalmu (mis. 5, 20, 100)
 fee_rate: 0.001            # fee per transaksi (0.001 = 0.1%)
 min_notional: 5.0          # nilai order minimum exchange

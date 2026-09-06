@@ -68,16 +68,21 @@ def _build_broker(cfg: Config):
 
 
 def run_live(cfg: Config) -> None:
-    from .datafeed import CcxtDataFeed
+    from .feeds import build_feed
+
+    if cfg.solana_mint and cfg.live_real:
+        raise SystemExit("[stop] Swap Solana (uang real) belum didukung — "
+                         "pakai paper dulu (kosongkan live_real).")
 
     strategy = build_strategy(cfg.strategy, cfg)
     broker, is_real = _build_broker(cfg)
     risk = RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct)
     notifier = build_notifier(cfg)
+    feed, symbol = build_feed(cfg)
     engine = TradingEngine(strategy, broker, cfg.starting_cash, risk=risk,
-                           notifier=notifier, symbol=cfg.symbol)
-    feed = CcxtDataFeed(cfg.exchange, cfg.symbol, cfg.timeframe)
+                           notifier=notifier, symbol=symbol)
 
+    source = "Solana DEX (DexScreener/GeckoTerminal)" if cfg.solana_mint else cfg.exchange
     if is_real and cfg.live_sandbox:
         mode = "UANG REAL — SANDBOX/TESTNET (uang bohongan, alur asli)"
     elif is_real:
@@ -87,7 +92,7 @@ def run_live(cfg: Config) -> None:
 
     print("=" * 62)
     print(f"  MODE     : {mode}")
-    print(f"  Pasar    : {cfg.exchange} | {cfg.symbol} | {cfg.timeframe}")
+    print(f"  Pasar    : {source} | {symbol} | {cfg.timeframe}")
     print(f"  Strategi : {strategy.describe()}")
     print(f"  Risiko   : SL {cfg.stop_loss_pct*100:g}% | TP {cfg.take_profit_pct*100:g}%"
           + ("  (nonaktif)" if not risk.active else ""))
