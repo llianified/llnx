@@ -2,3 +2,6 @@
 # Mode backtest & unit test TIDAK butuh ini — jalan pakai Python standar.
 ccxt>=4.2.0
 PyYAML>=6.0.1
+
+# TUI full-screen (opsional tapi disarankan)
+textual>=0.60

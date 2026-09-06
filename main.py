@@ -109,7 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Bot trading paper/real", parents=[common])
     sub = p.add_subparsers(dest="cmd")
 
-    sub.add_parser("menu", parents=[common], help="menu interaktif (default)")
+    sub.add_parser("tui", parents=[common], help="antarmuka TUI full-screen (default)")
+    sub.add_parser("menu", parents=[common], help="menu teks sederhana")
 
     bt = sub.add_parser("backtest", parents=[common], help="uji strategi cepat")
     bt.add_argument("--csv", help="CSV harga (kolom terakhir = close)")
@@ -127,8 +128,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     cfg = _apply_overrides(_load_config(args.config), args)
-    cmd = args.cmd or "menu"
-    if cmd == "menu":
+    cmd = args.cmd or "tui"
+    if cmd == "tui":
+        try:
+            from bot.tui import run_tui
+        except ModuleNotFoundError:
+            print("[info] Textual belum terpasang, pakai menu teks.")
+            print("       Untuk TUI keren: pip install -r requirements.txt")
+            from bot.menu import run_menu
+            run_menu(cfg)
+        else:
+            run_tui(cfg)
+    elif cmd == "menu":
         from bot.menu import run_menu
         run_menu(cfg)
     elif cmd == "backtest":

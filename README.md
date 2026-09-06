@@ -17,9 +17,16 @@ virtual. **Nol risiko, tanpa uang sungguhan, tanpa API key.**
 4. **Jembatan uang real** — order asli via `ccxt`, default **sandbox/testnet**.
 - **Menu interaktif** + **backtest** offline + **persistensi state** + **unit test**.
 
+## Tampilan (TUI)
+Jalankan `python3 main.py` untuk antarmuka **TUI full-screen** (bisa diklik pakai
+mouse & keyboard, layout landscape yang enak di layar lebar/HP):
+
+![TUI](docs/tui.png)
+
 ## Mulai cepat (paling gampang)
 ```bash
-python3 main.py            # buka MENU interaktif — tinggal pilih angka
+python3 main.py            # TUI full-screen (butuh: pip install textual)
+python3 main.py menu       # menu teks sederhana (fallback tanpa textual)
 ```
 Dari menu kamu bisa: ubah modal & pasar, pilih strategi + parameternya, atur
 stop-loss/take-profit, jalankan backtest, mulai paper trading, lihat riwayat.
@@ -86,7 +93,8 @@ bot/
   datafeed.py              # harga live via ccxt (tanpa API key untuk paper)
   runner.py                # loop live + persistensi
   backtest.py              # mesin backtest + data sintetis
-  menu.py                  # menu interaktif
+  menu.py                  # menu teks sederhana
+  tui.py                   # TUI full-screen (Textual)
 tests/                     # unit test (pytest) — 23 test
 ```
 
