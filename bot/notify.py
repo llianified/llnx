@@ -1,7 +1,7 @@
-"""Notifikasi. NullNotifier (default, diam) & TelegramNotifier (opsional).
+"""Notifications: NullNotifier (default, silent) and TelegramNotifier.
 
-Telegram butuh bot token + chat id. Buat bot lewat @BotFather, ambil chat id
-dari @userinfobot. Pakai urllib standar — tanpa dependency tambahan.
+Telegram needs a bot token and a chat id: create the bot with @BotFather and
+get the chat id from @userinfobot. Uses urllib, so no extra packages.
 """
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ class TelegramNotifier:
         try:
             with urllib.request.urlopen(url, data=data, timeout=self.timeout) as r:
                 json.loads(r.read().decode())
-        except Exception as e:  # jaringan gagal jangan menjatuhkan bot
-            print(f"[telegram] gagal kirim: {e!r}")
+        except Exception as e:  # a network hiccup must not kill the bot
+            print(f"[telegram] send failed: {e!r}")
 
     def notify(self, text: str) -> None:
         self.send(text)
@@ -49,15 +49,15 @@ class TelegramNotifier:
         emoji = "🟢" if trade.side == "BUY" else "🔴"
         self.send(
             f"{emoji} <b>{trade.side}</b> {symbol}\n"
-            f"harga: {trade.price:.6g}\n"
-            f"jumlah: {trade.amount:.8g}\n"
-            f"alasan: {trade.reason or '-'}\n"
+            f"price: {trade.price:.6g}\n"
+            f"amount: {trade.amount:.8g}\n"
+            f"reason: {trade.reason or '-'}\n"
             f"equity: {trade.equity_after:.4f}"
         )
 
 
 def build_notifier(cfg):
-    """Kembalikan TelegramNotifier bila token+chat id ada, else NullNotifier."""
+    """TelegramNotifier when a token and chat id are set, NullNotifier otherwise."""
     import os
     token = os.environ.get("TELEGRAM_TOKEN") or getattr(cfg, "telegram_token", "")
     chat = os.environ.get("TELEGRAM_CHAT_ID") or getattr(cfg, "telegram_chat_id", "")

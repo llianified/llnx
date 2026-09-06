@@ -1,9 +1,10 @@
-"""Engine: menyatukan risk manager + strategi + broker + notifier.
+"""Engine: ties the risk manager, strategy, broker and notifier together.
 
-Alur tiap tick:
-  1. Cek risk manager (SL/TP). Kalau terpicu -> jual, selesai.
-  2. Kalau tidak, jalankan strategi -> BUY / SELL / HOLD.
-Logika ini murni & tak tahu soal jaringan (mudah dites & di-backtest).
+Each tick:
+  1. Check the risk manager (SL/TP). If it fires -> sell and stop there.
+  2. Otherwise run the strategy -> BUY / SELL / HOLD.
+The logic is pure and knows nothing about the network, which keeps it easy
+to test and to backtest.
 """
 from __future__ import annotations
 
@@ -48,14 +49,14 @@ class TradingEngine:
         decision: Decision = Decision("HOLD")
         executed: Optional[Trade] = None
 
-        # 1) Risk manager punya prioritas
+        # 1) the risk manager goes first
         if self.risk and self.risk.active:
             rd = self.risk.check(ctx)
             if rd is not None:
                 executed = self.broker.sell(price)
                 decision = rd
 
-        # 2) Strategi (kalau risk tidak menjual)
+        # 2) the strategy, unless risk already sold
         if executed is None:
             decision = self.strategy.evaluate(closes, ctx)
             if decision.action == "BUY":

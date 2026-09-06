@@ -1,4 +1,4 @@
-"""Registry jaringan yang didukung (Solana + EVM)."""
+"""Registry of supported networks (Solana + EVM)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,14 +6,14 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Chain:
-    id: str            # dipakai di CLI/config
+    id: str            # used on the CLI and in config.yaml
     name: str
     kind: str          # "solana" | "evm"
-    dexscreener: str   # chainId di DexScreener
-    gecko: str         # network id di GeckoTerminal
-    goplus: str        # id GoPlus (nomor utk EVM, "solana" utk solana)
-    native: str        # simbol koin gas
-    rpc_env: str       # nama env var RPC
+    dexscreener: str   # chainId on DexScreener
+    gecko: str         # network id on GeckoTerminal
+    goplus: str        # GoPlus id (a number for EVM, "solana" for Solana)
+    native: str        # gas coin symbol
+    rpc_env: str       # name of the RPC env var
 
 
 CHAINS = {
@@ -29,5 +29,5 @@ CHAINS = {
 def get_chain(chain_id: str) -> Chain:
     key = (chain_id or "solana").lower()
     if key not in CHAINS:
-        raise ValueError(f"chain '{chain_id}' tidak dikenal. Pilihan: {', '.join(CHAINS)}")
+        raise ValueError(f"unknown chain '{chain_id}'. Options: {', '.join(CHAINS)}")
     return CHAINS[key]

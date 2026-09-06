@@ -1,11 +1,13 @@
-"""CcxtBroker: eksekusi order UANG SUNGGUHAN via ccxt.  ⚠️ EKSPERIMENTAL.
+"""CcxtBroker: places REAL orders through ccxt. Experimental.
 
-Interface-nya sama dengan PaperBroker sehingga engine tak perlu tahu bedanya.
-Default ke SANDBOX/TESTNET (uang bohongan, alur order asli). Gunakan mainnet
-hanya setelah puas menguji di paper & sandbox.
+Same interface as PaperBroker, so the engine cannot tell the difference.
+Defaults to the exchange sandbox/testnet (fake money, real order flow). Only
+move to mainnet once paper and sandbox runs look right.
 
-API key dibaca dari environment (JANGAN ditulis di kode/commit):
+Keys come from the environment, never from the code:
   EXCHANGE_API_KEY, EXCHANGE_API_SECRET
+
+Requires: pip install ccxt
 """
 from __future__ import annotations
 
@@ -27,9 +29,9 @@ class CcxtBroker:
         secret = os.environ.get("EXCHANGE_API_SECRET", "")
         if not key or not secret:
             raise RuntimeError(
-                "EXCHANGE_API_KEY / EXCHANGE_API_SECRET belum di-set di environment.")
+                "EXCHANGE_API_KEY / EXCHANGE_API_SECRET are not set in the environment.")
         if not hasattr(ccxt, exchange_id):
-            raise ValueError(f"exchange '{exchange_id}' tidak dikenal ccxt")
+            raise ValueError(f"ccxt does not know the exchange '{exchange_id}'")
 
         self.symbol = symbol
         self.base, self.quote = symbol.split("/")
@@ -48,7 +50,7 @@ class CcxtBroker:
         self.exchange.load_markets()
         self.refresh()
 
-    # ── Saldo ────────────────────────────────────────────────────
+    # ── balances ─────────────────────────────────────────────────
     def refresh(self) -> None:
         bal = self.exchange.fetch_balance()
         self.cash = float(bal.get(self.quote, {}).get("free", 0.0) or 0.0)
@@ -60,7 +62,7 @@ class CcxtBroker:
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    # ── Order ────────────────────────────────────────────────────
+    # ── orders ───────────────────────────────────────────────────
     def buy(self, price: float, quote_amount: Optional[float] = None) -> Optional[Trade]:
         spend = self.cash if quote_amount is None else min(quote_amount, self.cash)
         if spend < self.min_notional:
@@ -71,7 +73,7 @@ class CcxtBroker:
         try:
             self.exchange.create_order(self.symbol, "market", "buy", amount)
         except Exception as e:
-            print(f"[live] order BUY gagal: {e!r}")
+            print(f"[live] BUY order failed: {e!r}")
             return None
         old_pos = self.position
         self.refresh()
@@ -93,7 +95,7 @@ class CcxtBroker:
         try:
             self.exchange.create_order(self.symbol, "market", "sell", amount)
         except Exception as e:
-            print(f"[live] order SELL gagal: {e!r}")
+            print(f"[live] SELL order failed: {e!r}")
             return None
         self.refresh()
         if self.position <= 1e-12:

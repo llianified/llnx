@@ -1,2 +1,1 @@
-"""Bot trading paper (simulasi) dengan strategi SMA crossover."""
-__version__ = "0.1.0"
+"""Paper trading bot with SMA, RSI and grid/DCA strategies."""

@@ -1,4 +1,4 @@
-"""Indikator teknikal murni (tanpa dependency eksternal)."""
+"""Plain technical indicators, standard library only."""
 from __future__ import annotations
 
 from typing import Optional, Sequence
@@ -6,18 +6,18 @@ from typing import Optional, Sequence
 
 def sma(values: Sequence[float], period: int) -> float:
     if period <= 0:
-        raise ValueError("period harus > 0")
+        raise ValueError("period must be > 0")
     if len(values) < period:
-        raise ValueError(f"butuh minimal {period} data, dapat {len(values)}")
+        raise ValueError(f"need at least {period} values, got {len(values)}")
     return sum(values[-period:]) / period
 
 
 def cross_signal(closes: Sequence[float], fast: int, slow: int) -> str:
-    """Deteksi persilangan SMA tepat di candle terakhir.
+    """Detect an SMA cross on the last candle.
 
-    'BUY'  = golden cross (fast memotong NAIK slow)
-    'SELL' = death cross  (fast memotong TURUN slow)
-    'HOLD' = tidak ada persilangan
+    'BUY'  = golden cross (fast crosses ABOVE slow)
+    'SELL' = death cross  (fast crosses BELOW slow)
+    'HOLD' = no cross
     """
     if len(closes) < slow + 1:
         return "HOLD"
@@ -31,7 +31,7 @@ def cross_signal(closes: Sequence[float], fast: int, slow: int) -> str:
 
 
 def rsi(closes: Sequence[float], period: int) -> Optional[float]:
-    """RSI (rata-rata sederhana). Return None bila data belum cukup."""
+    """RSI (simple averages). Returns None while there is too little data."""
     if len(closes) < period + 1:
         return None
     gains = losses = 0.0

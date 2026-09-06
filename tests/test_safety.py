@@ -3,7 +3,7 @@ from bot.safety import parse_goplus, parse_rugcheck
 
 def test_rugcheck_flags_authorities_and_risks():
     data = {"mintAuthority": "SomeAddr", "freezeAuthority": "Frz",
-            "risks": [{"name": "Low liquidity", "level": "warn", "description": "tipis"}]}
+            "risks": [{"name": "Low liquidity", "level": "warn", "description": "thin book"}]}
     r = parse_rugcheck(data, "mint1")
     assert r.level == "danger"          # freeze authority = danger
     msgs = " ".join(m for _, m in r.flags)
@@ -31,7 +31,7 @@ def test_goplus_high_tax_and_lp():
                               "lp_holders": [{"is_locked": "1"}]}}}
     r = parse_goplus(data, addr)
     assert r.level == "warn"           # sell tax 12% -> warn
-    assert any("terkunci" in m for _, m in r.flags)
+    assert any("locked" in m for _, m in r.flags)
 
 
 def test_goplus_empty_is_unknown():

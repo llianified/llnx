@@ -1,7 +1,7 @@
-"""Manajemen risiko: stop-loss & take-profit global (berlaku untuk semua strategi).
+"""Global stop-loss and take-profit, applied to every strategy.
 
-Dicek SEBELUM strategi. Kalau terpicu, posisi langsung dijual penuh.
-Set pct = 0 untuk menonaktifkan.
+Checked BEFORE the strategy runs. When one triggers, the whole position is
+sold. Set a percentage to 0 to switch it off.
 """
 from __future__ import annotations
 

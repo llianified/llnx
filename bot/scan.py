@@ -1,4 +1,4 @@
-"""Auto-scan token trending per chain via GeckoTerminal trending pools."""
+"""Scan trending tokens per chain, via GeckoTerminal trending pools."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ TRENDING = "https://api.geckoterminal.com/api/v2/networks/{net}/trending_pools?p
 @dataclass
 class Candidate:
     name: str
-    address: str        # alamat token (mint / kontrak)
+    address: str        # token address (mint or contract)
     price_usd: float
     volume_usd: float
     pool: str

@@ -1,4 +1,4 @@
-"""Runner mode LIVE (paper atau real): loop harga, jalankan engine, simpan state."""
+"""Live runner (paper or real): poll prices, step the engine, save state."""
 from __future__ import annotations
 
 import csv
@@ -20,7 +20,7 @@ def _load_paper_broker(cfg: Config) -> PaperBroker:
     if os.path.exists(cfg.state_file):
         with open(cfg.state_file, "r", encoding="utf-8") as f:
             broker = PaperBroker.from_dict(json.load(f))
-        print(f"[state] lanjut dari {cfg.state_file}: "
+        print(f"[state] resuming from {cfg.state_file}: "
               f"cash={broker.cash:.4f} position={broker.position:.8f}")
         return broker
     return PaperBroker(fee_rate=cfg.fee_rate, min_notional=cfg.min_notional,
@@ -48,38 +48,38 @@ def _append_trade(cfg: Config, t) -> None:
 
 def _confirm_real() -> bool:
     print("\n" + "!" * 60)
-    print("  ⚠️  MODE UANG SUNGGUHAN. Order akan memakai dana ASLI di akunmu.")
-    print("  Pastikan sudah puas menguji di mode paper & sandbox.")
+    print("  REAL MONEY MODE. Orders will spend the funds in your account.")
+    print("  Only do this once paper and sandbox runs look right.")
     print("!" * 60)
-    ans = input('  Ketik "SAYA PAHAM" untuk lanjut: ').strip()
-    return ans == "SAYA PAHAM"
+    ans = input('  Type "I UNDERSTAND" to continue: ').strip()
+    return ans == "I UNDERSTAND"
 
 
 def _build_broker(cfg: Config):
-    # ── mode DEX (token_address diisi) ──
+    # ── DEX mode (token_address is set) ──
     if cfg.token_address:
         if not cfg.live_real:
             return _load_paper_broker(cfg), False
         from .chains import get_chain
         chain = get_chain(cfg.chain)
         if chain.kind != "solana":
-            raise SystemExit(f"[stop] Real swap {chain.name} (EVM) belum didukung — "
-                             "pakai paper. Real-execution baru tersedia untuk Solana.")
+            raise SystemExit(f"[stop] real swaps on {chain.name} (EVM) are not supported "
+                             "yet -- stay on paper. Only Solana can execute for real.")
         from .jupiter_broker import JupiterBroker
         if not cfg.live_sandbox and not _confirm_real():
-            print("[stop] dibatalkan.")
+            print("[stop] cancelled.")
             sys.exit(0)
         broker = JupiterBroker(cfg.token_address, dry_run=cfg.live_sandbox,
                                cash=cfg.starting_cash, fee_rate=cfg.fee_rate,
                                min_notional=cfg.min_notional,
                                slippage_bps=cfg.jupiter_slippage_bps)
         return broker, True
-    # ── mode CEX ──
+    # ── exchange mode ──
     if not cfg.live_real:
         return _load_paper_broker(cfg), False
     from .live_broker import CcxtBroker
     if not cfg.live_sandbox and not _confirm_real():
-        print("[stop] dibatalkan.")
+        print("[stop] cancelled.")
         sys.exit(0)
     broker = CcxtBroker(cfg.exchange, cfg.symbol, sandbox=cfg.live_sandbox,
                         fee_rate=cfg.fee_rate, min_notional=cfg.min_notional)
@@ -103,44 +103,44 @@ def run_live(cfg: Config) -> None:
     else:
         source = cfg.exchange
     if is_real and cfg.token_address:
-        mode = ("SWAP SOLANA — DRY-RUN (quote asli, tx TIDAK dikirim)"
-                if cfg.live_sandbox else "!!! SWAP SOLANA SUNGGUHAN !!!")
+        mode = ("SOLANA SWAP - DRY RUN (real quotes, nothing is sent)"
+                if cfg.live_sandbox else "!!! REAL SOLANA SWAPS !!!")
     elif is_real and cfg.live_sandbox:
-        mode = "UANG REAL — SANDBOX/TESTNET (uang bohongan, alur asli)"
+        mode = "REAL MODE - SANDBOX/TESTNET (fake money, real order flow)"
     elif is_real:
-        mode = "!!! UANG SUNGGUHAN — MAINNET !!!"
+        mode = "!!! REAL MONEY - MAINNET !!!"
     else:
-        mode = "PAPER (simulasi, tanpa uang sungguhan)"
+        mode = "PAPER (simulated, no real money)"
 
     print("=" * 62)
-    print(f"  MODE     : {mode}")
-    print(f"  Pasar    : {source} | {symbol} | {cfg.timeframe}")
-    print(f"  Strategi : {strategy.describe()}")
-    print(f"  Risiko   : SL {cfg.stop_loss_pct*100:g}% | TP {cfg.take_profit_pct*100:g}%"
-          + ("  (nonaktif)" if not risk.active else ""))
-    print(f"  Notifikasi: {'Telegram ON' if notifier.enabled else 'off'}")
-    print(f"  Cek tiap {cfg.poll_interval_sec}s. Ctrl+C untuk berhenti.")
+    print(f"  mode     : {mode}")
+    print(f"  market   : {source} | {symbol} | {cfg.timeframe}")
+    print(f"  strategy : {strategy.describe()}")
+    print(f"  risk     : SL {cfg.stop_loss_pct*100:g}% | TP {cfg.take_profit_pct*100:g}%"
+          + ("  (off)" if not risk.active else ""))
+    print(f"  notify   : {'telegram on' if notifier.enabled else 'off'}")
+    print(f"  polling every {cfg.poll_interval_sec}s. Ctrl+C to stop.")
     print("=" * 62)
     if notifier.enabled:
-        notifier.notify(f"Bot start — {mode}\n{symbol} | {strategy.describe()}")
+        notifier.notify(f"bot started - {mode}\n{symbol} | {strategy.describe()}")
 
     if cfg.token_address and cfg.safety_check:
         from .safety import check_token
-        print("[safety] cek keamanan token...")
+        print("[safety] checking the token...")
         rep = check_token(cfg.chain, cfg.token_address)
-        print(f"[safety] {rep.summary()} (sumber: {rep.source or '-'})")
+        print(f"[safety] {rep.summary()} (source: {rep.source or '-'})")
         for lvl, msg in rep.flags[:8]:
             print(f"   - [{lvl}] {msg}")
         if rep.blocking and is_real:
-            raise SystemExit("[stop] token terdeteksi BAHAYA — real trading dibatalkan.")
+            raise SystemExit("[stop] the token looks DANGEROUS - real trading cancelled.")
         if rep.blocking:
-            print("   [safety] token BAHAYA — lanjut paper saja (waspada).")
+            print("   [safety] the token looks DANGEROUS - continuing on paper only.")
 
     run = {"go": True}
 
     def _stop(signum, frame):
         run["go"] = False
-        print("\n[stop] menyimpan state...")
+        print("\n[stop] saving state...")
 
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
@@ -157,10 +157,10 @@ def run_live(cfg: Config) -> None:
                 mark = f">>> {res.executed.side} @ {price:.2f} ({res.executed.reason})"
             else:
                 mark = ""
-            print(f"[{time.strftime('%H:%M:%S')}] harga={price:.2f} "
-                  f"sinyal={res.decision.action:<4} equity={res.equity:.4f}  {mark}")
+            print(f"[{time.strftime('%H:%M:%S')}] price={price:.2f} "
+                  f"signal={res.decision.action:<4} equity={res.equity:.4f}  {mark}")
         except Exception as e:
-            print(f"[warn] error tick: {e!r} — coba lagi nanti")
+            print(f"[warn] tick failed: {e!r} - will retry")
 
         for _ in range(cfg.poll_interval_sec):
             if not run["go"]:
@@ -169,4 +169,4 @@ def run_live(cfg: Config) -> None:
 
     if not is_real:
         _save_paper_broker(cfg, broker)
-    print("[stop] selesai.")
+    print("[stop] done.")

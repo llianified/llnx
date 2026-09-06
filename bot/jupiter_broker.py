@@ -1,13 +1,14 @@
-"""Broker Solana via Jupiter — swap DEX.  ⚠️ jalur real EKSPERIMENTAL.
+"""Solana broker on top of Jupiter swaps. The real path is experimental.
 
-Mode:
-  dry_run=True (default): ambil quote Jupiter ASLI untuk estimasi slippage/impact,
-    tapi TIDAK mengirim transaksi. Akunting disimulasikan (aman, tanpa wallet).
-  dry_run=False: kirim swap sungguhan. Butuh env SOLANA_PRIVATE_KEY (base58) &
-    SOLANA_RPC_URL, plus paket 'solders'. Belum teruji di jaringan nyata —
-    UJI DULU dengan nominal sangat kecil.
+Modes:
+  dry_run=True (default): fetch a real Jupiter quote to estimate slippage and
+    price impact, but send nothing. The accounting is simulated, no wallet
+    is needed.
+  dry_run=False: send an actual swap. Needs SOLANA_PRIVATE_KEY (base58) and
+    SOLANA_RPC_URL in the environment plus the 'solders' package. This path
+    has not been exercised on mainnet -- start with tiny amounts.
 
-Interface sama dengan PaperBroker sehingga engine tak perlu tahu bedanya.
+Same interface as PaperBroker, so the engine cannot tell the difference.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from typing import Optional
 from .broker import PaperBroker, Trade
 from .http import get_json, post_json
 
-USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # 6 desimal
+USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # 6 decimals
 QUOTE = ("https://quote-api.jup.ag/v6/quote?inputMint={i}&outputMint={o}"
          "&amount={a}&slippageBps={bps}")
 SWAP = "https://quote-api.jup.ag/v6/swap"
@@ -35,7 +36,7 @@ class JupiterBroker:
         self.slippage_bps = slippage_bps
         self._paper = PaperBroker(fee_rate=fee_rate, min_notional=min_notional, cash=cash)
 
-    # ── ekspose field seperti PaperBroker ────────────────────────
+    # ── expose the same fields as PaperBroker ────────────────────
     @property
     def cash(self): return self._paper.cash
     @property
@@ -50,10 +51,10 @@ class JupiterBroker:
     def equity(self, price: float) -> float:
         return self._paper.equity(price)
 
-    # ── estimasi slippage dari quote Jupiter ─────────────────────
+    # ── slippage estimate from a Jupiter quote ───────────────────
     def _buy_impact(self, usd: float) -> float:
         try:
-            amt = int(max(usd, 1) * 1_000_000)  # USDC 6 desimal
+            amt = int(max(usd, 1) * 1_000_000)  # USDC has 6 decimals
             q = get_json(QUOTE.format(i=USDC, o=self.token, a=amt, bps=self.slippage_bps))
             return float(q.get("priceImpactPct") or 0.0)
         except Exception:
@@ -61,7 +62,7 @@ class JupiterBroker:
 
     def buy(self, price: float, quote_amount: Optional[float] = None) -> Optional[Trade]:
         impact = self._buy_impact(quote_amount if quote_amount else self._paper.cash)
-        eff = price * (1 + abs(impact))  # beli jadi lebih mahal karena impact
+        eff = price * (1 + abs(impact))  # impact makes the buy more expensive
         if not self.dry_run:
             self._send_swap("buy", quote_amount if quote_amount else self._paper.cash)
         t = self._paper.buy(eff, quote_amount)
@@ -77,18 +78,18 @@ class JupiterBroker:
             t.reason += " · jupiter " + ("dry-run" if self.dry_run else "LIVE")
         return t
 
-    # ── jalur REAL (eksperimental) ───────────────────────────────
+    # ── the real swap path (experimental) ────────────────────────
     def _send_swap(self, side: str, amount: float) -> None:
         key = os.environ.get("SOLANA_PRIVATE_KEY")
         rpc = os.environ.get("SOLANA_RPC_URL")
         if not key or not rpc:
-            raise RuntimeError("SOLANA_PRIVATE_KEY / SOLANA_RPC_URL belum di-set")
+            raise RuntimeError("SOLANA_PRIVATE_KEY / SOLANA_RPC_URL are not set")
         try:
             import base64
             from solders.keypair import Keypair
             from solders.transaction import VersionedTransaction
         except ImportError as e:
-            raise RuntimeError(f"paket solders belum terpasang: {e}")
+            raise RuntimeError(f"the solders package is not installed: {e}")
 
         kp = Keypair.from_base58_string(key)
         if side == "buy":
@@ -109,4 +110,4 @@ class JupiterBroker:
                               "params": [base64.b64encode(bytes(signed)).decode(),
                                          {"encoding": "base64"}]})
         if "error" in sig:
-            raise RuntimeError(f"kirim tx gagal: {sig['error']}")
+            raise RuntimeError(f"sending the transaction failed: {sig['error']}")

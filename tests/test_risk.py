@@ -1,4 +1,4 @@
-"""Test manajemen risiko (stop-loss / take-profit) via engine."""
+"""Risk management (stop-loss / take-profit) through the engine."""
 from bot.broker import PaperBroker
 from bot.engine import TradingEngine
 from bot.risk import RiskManager
@@ -35,5 +35,5 @@ def test_take_profit_triggers_sell():
 def test_no_trigger_when_within_bounds():
     eng, b = _engine(sl=0.05, tp=0.10)
     b.buy(100.0)
-    res = eng.step([100], 102.0)     # dalam batas -> tidak jual
+    res = eng.step([100], 102.0)     # within bounds -> no sale
     assert res.executed is None
