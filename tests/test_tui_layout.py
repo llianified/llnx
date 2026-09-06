@@ -49,17 +49,32 @@ def test_settings_bar_hides_itself_on_a_tiny_terminal():
     assert run(go())
 
 
-def test_summary_shows_only_while_the_settings_bar_is_hidden():
+def test_the_status_band_is_always_on_screen():
+    """A bot that trades by itself has to show what it holds, panel or not."""
     async def go():
         app = LlnxTUI(Config())
         async with app.run_test(size=(60, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
-            with_bar = app.query_one("#summary").display
+            with_bar = app.query_one("#status").display
             await pilot.press("t")
             await pilot.pause()
-            return with_bar, app.query_one("#summary").display
+            return with_bar, app.query_one("#status").display
     with_bar, without_bar = run(go())
-    assert not with_bar and without_bar
+    assert with_bar and without_bar
+
+
+def test_the_status_band_folds_to_one_line_on_a_short_terminal():
+    async def go():
+        app = LlnxTUI(Config())
+        async with app.run_test(size=(80, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            tall = app._status()
+            await pilot.resize_terminal(80, 20)
+            await pilot.pause(); await pilot.pause()
+            return tall, app._status()
+    tall, short = run(go())
+    assert "\n" in tall and "\n" not in short
+    assert "equity" in short
 
 
 def test_toggling_the_settings_bar():

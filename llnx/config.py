@@ -56,6 +56,10 @@ class Config:
     solana_mint: str = ""          # old alias for token_address (solana chain)
     safety_check: bool = True      # scan for honeypot/authority before going live
     jupiter_slippage_bps: int = 100  # 100 = 1% (real Solana swaps)
+    # Jupiter moves its public endpoints from time to time; override them here
+    # rather than in the code. Empty falls back to the built-in default.
+    jupiter_api_url: str = ""      # quote + swap
+    jupiter_tokens_url: str = ""   # token metadata (decimals fall back to RPC)
     symbol: str = "BTC/USDT"
     timeframe: str = "1m"
     strategy: str = "sma"          # sma | rsi | grid

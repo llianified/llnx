@@ -31,11 +31,16 @@ from . import wallet
 
 USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # 6 decimals
 USDC_DECIMALS = 6
-QUOTE = ("https://quote-api.jup.ag/v6/quote?inputMint={i}&outputMint={o}"
-         "&amount={a}&slippageBps={bps}")
-SWAP = "https://quote-api.jup.ag/v6/swap"
-TOKEN_META = "https://tokens.jup.ag/token/{mint}"
 DEFAULT_DECIMALS = 9
+
+# Jupiter has moved its public endpoints before and will again, so the hosts
+# are settings rather than constants (jupiter_api_url / jupiter_tokens_url in
+# config.yaml). These are the free-tier defaults.
+API_URL = "https://lite-api.jup.ag/swap/v1"
+TOKENS_URL = "https://lite-api.jup.ag/tokens/v1/token"
+# the previous generation, still worth trying if the default 404s:
+LEGACY_API_URL = "https://quote-api.jup.ag/v6"
+LEGACY_TOKENS_URL = "https://tokens.jup.ag/token"
 
 
 class JupiterBroker:
@@ -43,12 +48,15 @@ class JupiterBroker:
 
     def __init__(self, token_mint: str, *, dry_run: bool = True, cash: float = 20.0,
                  fee_rate: float = 0.003, min_notional: float = 1.0,
-                 slippage_bps: int = 100, log=print) -> None:
+                 slippage_bps: int = 100, log=print, api_url: str = API_URL,
+                 tokens_url: str = TOKENS_URL) -> None:
         self.token = token_mint
         self.dry_run = dry_run
         self.slippage_bps = slippage_bps
         self.min_notional = min_notional
         self.log = log
+        self.api_url = (api_url or API_URL).rstrip("/")
+        self.tokens_url = (tokens_url or TOKENS_URL).rstrip("/")
         self.trades: list = []
         self._decimals: Optional[int] = None
 
@@ -128,7 +136,7 @@ class JupiterBroker:
 
     def _fetch_decimals(self) -> int:
         try:
-            meta = get_json(TOKEN_META.format(mint=self.token)) or {}
+            meta = get_json(f"{self.tokens_url}/{self.token}") or {}
             if meta.get("decimals") is not None:
                 return int(meta["decimals"])
         except Exception:
@@ -142,8 +150,15 @@ class JupiterBroker:
 
     # ── quotes ───────────────────────────────────────────────────
     def _quote(self, in_mint: str, out_mint: str, atomic: int) -> dict:
-        q = get_json(QUOTE.format(i=in_mint, o=out_mint, a=int(atomic),
-                                  bps=self.slippage_bps))
+        url = (f"{self.api_url}/quote?inputMint={in_mint}&outputMint={out_mint}"
+               f"&amount={int(atomic)}&slippageBps={self.slippage_bps}")
+        try:
+            q = get_json(url)
+        except Exception as e:
+            raise RuntimeError(
+                f"Jupiter did not answer at {self.api_url}: {e!r}. If the API has "
+                f"moved, set jupiter_api_url in config.yaml (the previous host was "
+                f"{LEGACY_API_URL}).") from e
         if not q or not q.get("outAmount"):
             raise RuntimeError(f"Jupiter has no route for {in_mint[:6]}→{out_mint[:6]}")
         return q
@@ -230,7 +245,7 @@ class JupiterBroker:
         """
         from solders.transaction import VersionedTransaction
 
-        body = post_json(SWAP, {
+        body = post_json(f"{self.api_url}/swap", {
             "quoteResponse": quote,
             "userPublicKey": self.owner,
             "wrapAndUnwrapSol": True,

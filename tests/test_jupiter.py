@@ -2,7 +2,8 @@
 import pytest
 
 from llnx import jupiter_broker, wallet
-from llnx.jupiter_broker import USDC, JupiterBroker
+from llnx.config import Config
+from llnx.jupiter_broker import API_URL, TOKENS_URL, USDC, JupiterBroker
 
 
 def quoting(rate):
@@ -111,3 +112,39 @@ def test_selling_everything_live_spends_the_exact_base_units(monkeypatch):
     assert quoted == [49_000_000]
     assert trade.amount == pytest.approx(49.0)
     assert b.position == 0.0 and b.avg_entry == 0.0
+
+
+# ── endpoints ────────────────────────────────────────────────────
+def test_the_endpoints_can_be_pointed_somewhere_else(monkeypatch):
+    seen = []
+    monkeypatch.setattr(jupiter_broker, "get_json",
+                        lambda url: (seen.append(url), {"outAmount": "5"})[1])
+    b = JupiterBroker("MINT", dry_run=True, api_url="https://quote-api.jup.ag/v6/",
+                      tokens_url="https://tokens.jup.ag/token/")
+    b._quote(USDC, "MINT", 1_000_000)
+    assert seen[0].startswith("https://quote-api.jup.ag/v6/quote?inputMint=")
+    assert "slippageBps=100" in seen[0]
+    assert b.tokens_url == "https://tokens.jup.ag/token"     # trailing slash trimmed
+    assert JupiterBroker("MINT", dry_run=True).api_url == API_URL
+
+
+def test_an_unreachable_api_names_the_setting_to_change(monkeypatch):
+    def boom(url):
+        raise OSError("no route to host")
+    monkeypatch.setattr(jupiter_broker, "get_json", boom)
+    b = JupiterBroker("MINT", dry_run=True)
+    with pytest.raises(RuntimeError, match="jupiter_api_url"):
+        b._quote(USDC, "MINT", 1_000_000)
+
+
+def test_the_config_carries_the_endpoints():
+    cfg = Config(jupiter_api_url="https://example.test/v7")
+    assert cfg.jupiter_api_url == "https://example.test/v7"
+    assert Config().jupiter_api_url == ""      # empty = use the built-in default
+
+
+def test_decimals_come_from_the_configured_token_endpoint(monkeypatch):
+    monkeypatch.setattr(jupiter_broker, "get_json", lambda url: {"decimals": 8}
+                        if url == f"{TOKENS_URL}/MINT" else None)
+    b = JupiterBroker("MINT", dry_run=True)
+    assert b.decimals == 8
