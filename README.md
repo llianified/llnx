@@ -38,6 +38,14 @@ Di Termux: **putar HP ke landscape** untuk tampilan penuh. Kalau tetap portrait,
 tekan **`t`** untuk menyembunyikan/menampilkan panel pengaturan supaya log dapat
 layar penuh. Saat layar diputar, isi log ikut dibungkus ulang (tidak kepotong).
 
+HP landscape (96x20) — pengaturan di kiri, log di kanan, field dirapatkan:
+
+![TUI HP landscape](docs/tui_hp_landscape.png)
+
+Termux portrait (45x55) — pengaturan menumpuk di atas, log mengisi sisanya:
+
+![TUI Termux portrait](docs/tui_termux_portrait.png)
+
 ## Mulai cepat (paling gampang)
 ```bash
 python3 main.py            # TUI full-screen (butuh: pip install textual)
