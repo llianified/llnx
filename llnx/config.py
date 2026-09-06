@@ -1,7 +1,10 @@
-"""Bot configuration: loaded from config.yaml, overridable from the CLI."""
+"""llnx configuration: loaded from config.yaml, overridable from the CLI."""
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+
+
+MODES = ("paper", "sandbox", "live")
 
 
 def _parse_scalar(raw: str):
@@ -79,6 +82,22 @@ class Config:
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
 
+    # ── auto-execution ──────────────────────────────────────────
+    # paper   = simulated orders against a virtual balance
+    # sandbox = real order flow on the exchange testnet / a Jupiter dry run
+    # live    = real orders with real money
+    # empty = derive it from the older live_real/live_sandbox pair
+    mode: str = ""
+    auto_execute: bool = True       # False = print the signal, send nothing
+
+    # guardrails, applied to every order (0 = off)
+    max_daily_loss_pct: float = 0.10    # stop buying after -10% on the day
+    max_trades_per_day: int = 20
+    cooldown_sec: int = 0               # min seconds between orders
+    max_order_pct: float = 0.0          # cap one order at X% of equity
+    max_consecutive_failures: int = 3   # stand down after N failures in a row
+    kill_switch_file: str = "STOP"      # `touch STOP` stops the bot
+
     # telegram notifications (leave empty to disable; env vars are safer)
     telegram_token: str = ""
     telegram_chat_id: str = ""
@@ -90,6 +109,7 @@ class Config:
     # output files
     state_file: str = "state.json"
     trades_file: str = "trades.csv"
+    orders_file: str = "orders.jsonl"   # every order attempt, filled or not
 
     def __post_init__(self) -> None:
         if self.sma_fast >= self.sma_slow:
@@ -103,6 +123,22 @@ class Config:
             raise ValueError(f"unknown strategy '{self.strategy}'")
         if self.solana_mint and not self.token_address:
             self.token_address = self.solana_mint  # backwards compatibility
+
+        mode = (self.mode or "").lower()
+        if not mode:
+            # older configs said live_real/live_sandbox instead of mode
+            mode = (("sandbox" if self.live_sandbox else "live") if self.live_real
+                    else "paper")
+        elif mode not in MODES:
+            raise ValueError(f"unknown mode '{self.mode}'. Options: {', '.join(MODES)}")
+        # mode is the single source of truth; the old pair follows it
+        self.mode = mode
+        self.live_real = mode != "paper"
+        self.live_sandbox = mode == "sandbox"
+        if not 0 <= self.max_daily_loss_pct < 1:
+            raise ValueError("max_daily_loss_pct must be within [0, 1)")
+        if not 0 <= self.max_order_pct <= 1:
+            raise ValueError("max_order_pct must be within [0, 1]")
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":

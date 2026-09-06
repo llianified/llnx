@@ -1,4 +1,4 @@
-from bot.dexfeed import DexFeed, pick_pair
+from llnx.dexfeed import DexFeed, pick_pair
 
 
 def test_pick_pair_filters_by_chain():

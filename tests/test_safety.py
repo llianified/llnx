@@ -1,4 +1,4 @@
-from bot.safety import parse_goplus, parse_rugcheck
+from llnx.safety import parse_goplus, parse_rugcheck
 
 
 def test_rugcheck_flags_authorities_and_risks():

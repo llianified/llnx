@@ -1,8 +1,8 @@
 """Risk management (stop-loss / take-profit) through the engine."""
-from bot.broker import PaperBroker
-from bot.engine import TradingEngine
-from bot.risk import RiskManager
-from bot.strategies.base import Context, Decision, Strategy
+from llnx.broker import PaperBroker
+from llnx.engine import TradingEngine
+from llnx.risk import RiskManager
+from llnx.strategies.base import Context, Decision, Strategy
 
 
 class _Hold(Strategy):

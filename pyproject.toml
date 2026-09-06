@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llnx"
+version = "0.3.0"
+description = "A crypto trading bot that places its own orders: paper, sandbox or live."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []              # the core runs on the standard library alone
+
+[project.optional-dependencies]
+tui = ["textual>=0.60"]        # the full-screen interface
+cex = ["ccxt>=4"]              # exchanges other than Binance, and real CEX orders
+solana = ["solders>=0.20"]     # real Solana swaps through Jupiter
+yaml = ["PyYAML>=6"]           # stricter config.yaml parsing
+dev = ["pytest>=7", "textual>=0.60"]
+
+[project.scripts]
+llnx = "llnx.cli:main"
+
+[tool.setuptools]
+packages = ["llnx", "llnx.strategies"]

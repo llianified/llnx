@@ -7,7 +7,7 @@ import urllib.request
 
 
 def get_json(url: str, timeout: int = 15, headers: dict | None = None) -> dict:
-    h = {"User-Agent": "bot-trading/0.2", "Accept": "application/json"}
+    h = {"User-Agent": "llnx/0.3", "Accept": "application/json"}
     if headers:
         h.update(headers)
     req = urllib.request.Request(url, headers=h)
@@ -17,7 +17,7 @@ def get_json(url: str, timeout: int = 15, headers: dict | None = None) -> dict:
 
 def post_json(url: str, payload: dict, timeout: int = 20,
               headers: dict | None = None) -> dict:
-    h = {"User-Agent": "bot-trading/0.2", "Accept": "application/json",
+    h = {"User-Agent": "llnx/0.3", "Accept": "application/json",
          "Content-Type": "application/json"}
     if headers:
         h.update(headers)

@@ -1,8 +1,8 @@
 """Notifiers: the default null one, and building from the environment."""
 import os
 
-from bot.config import Config
-from bot.notify import NullNotifier, TelegramNotifier, build_notifier
+from llnx.config import Config
+from llnx.notify import NullNotifier, TelegramNotifier, build_notifier
 
 
 def test_null_notifier_is_quiet():

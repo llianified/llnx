@@ -1,7 +1,9 @@
-# State & output runtime bot (jangan di-commit)
+# Runtime state & output (never commit these)
 state.json
 state.json.tmp
 trades.csv
+orders.jsonl
+STOP
 
 # Python
 __pycache__/
@@ -12,7 +14,7 @@ __pycache__/
 venv/
 env/
 
-# Kunci API — JANGAN pernah di-commit
+# API keys — NEVER commit these
 .env
 *.key
 secrets.*

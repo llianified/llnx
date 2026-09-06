@@ -5,8 +5,8 @@ import pytest
 
 pytest.importorskip("textual", reason="textual is optional; TUI tests skipped")
 
-from bot.config import Config
-from bot.tui import BotTUI, TINY_ROWS, WIDE_COLS
+from llnx.config import Config
+from llnx.tui import LlnxTUI, TINY_ROWS, WIDE_COLS
 
 
 def run(coro):
@@ -16,7 +16,7 @@ def run(coro):
 def sizes(width, height):
     """Return (screen classes, panel height, log height) at a terminal size."""
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(width, height)) as pilot:
             await pilot.pause()
             await pilot.pause()
@@ -42,7 +42,7 @@ def test_settings_bar_never_takes_more_than_half_the_screen():
 
 def test_settings_bar_hides_itself_on_a_tiny_terminal():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(60, TINY_ROWS - 2)) as pilot:
             await pilot.pause()
             return app.query_one("#panel").has_class("hidden")
@@ -51,7 +51,7 @@ def test_settings_bar_hides_itself_on_a_tiny_terminal():
 
 def test_summary_shows_only_while_the_settings_bar_is_hidden():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(60, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
             with_bar = app.query_one("#summary").display
@@ -64,7 +64,7 @@ def test_summary_shows_only_while_the_settings_bar_is_hidden():
 
 def test_toggling_the_settings_bar():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(45, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
             await pilot.press("t"); await pilot.pause()
@@ -77,7 +77,7 @@ def test_toggling_the_settings_bar():
 
 def test_strategy_labels_shrink_on_a_narrow_terminal():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(60, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
             narrow = [str(p[0]) for p in app.query_one("#strategy")._options]
@@ -91,7 +91,7 @@ def test_strategy_labels_shrink_on_a_narrow_terminal():
 
 def test_log_is_rewrapped_when_the_terminal_is_resized():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(40, 30)) as pilot:
             await pilot.pause(); await pilot.pause()
             app._log("x" * 200)
@@ -107,7 +107,7 @@ def test_log_is_rewrapped_when_the_terminal_is_resized():
 
 def test_backtest_writes_a_report_to_the_log():
     async def go():
-        app = BotTUI(Config())
+        app = LlnxTUI(Config())
         async with app.run_test(size=(80, 30)) as pilot:
             await pilot.pause(); await pilot.pause()
             await pilot.press("b")

@@ -9,4 +9,4 @@ textual>=0.60
 #   pip install ccxt     exchanges other than Binance, and real CEX orders
 #   pip install PyYAML   stricter config.yaml parsing (a built-in reader is
 #                        used when PyYAML is missing)
-#   pip install solders  real Solana swaps through Jupiter (experimental)
+#   pip install solders  real Solana swaps through Jupiter

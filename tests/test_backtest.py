@@ -1,8 +1,8 @@
 """Backtests run for every strategy without blowing up."""
 import pytest
 
-from bot.backtest import run_backtest, synthetic_prices
-from bot.config import Config
+from llnx.backtest import run_backtest, synthetic_prices
+from llnx.config import Config
 
 
 @pytest.mark.parametrize("strategy", ["sma", "rsi", "grid"])

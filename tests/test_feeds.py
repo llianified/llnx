@@ -1,9 +1,9 @@
 """Feed selection and the dependency-free Binance feed."""
 import pytest
 
-from bot.config import Config
-from bot.datafeed import BinanceFeed, closes_from_klines, market_symbol
-from bot.feeds import build_feed
+from llnx.config import Config
+from llnx.datafeed import BinanceFeed, closes_from_klines, market_symbol
+from llnx.feeds import build_feed
 
 
 def test_market_symbol_drops_separators():
@@ -23,7 +23,7 @@ def test_binance_is_the_default_and_needs_no_extra_package():
 
 
 def test_other_exchanges_explain_they_need_ccxt(monkeypatch):
-    monkeypatch.setattr("bot.feeds.has_ccxt", lambda: False)
+    monkeypatch.setattr("llnx.feeds.has_ccxt", lambda: False)
     with pytest.raises(RuntimeError, match="ccxt"):
         build_feed(Config(exchange="kraken"))
 
