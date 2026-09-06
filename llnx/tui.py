@@ -100,6 +100,12 @@ class WrapLog(RichLog):
         self._history: list[str] = []
         self._width = 0
 
+    def clear_all(self) -> None:
+        """Empty the log for good: the history goes too, or a resize brings
+        every cleared line back."""
+        self._history.clear()
+        self.clear()
+
     def log_line(self, line: str = "") -> None:
         self._history.append(line)
         del self._history[:-LOG_HISTORY]
@@ -200,7 +206,7 @@ class LlnxTUI(App):
 
     /* ── wide terminal: four columns of fields, one row of buttons ─ */
     Screen.-wide #fields { grid-size: 4; }
-    Screen.-wide #actions { grid-size: 4; }
+    Screen.-wide #actions { grid-size: 5; }
 
     /* ── short terminal: tighter spacing ─────────────────────────── */
     Screen.-compact #panel { padding: 0 2; }
@@ -219,6 +225,7 @@ class LlnxTUI(App):
         ("c", "check", "check"),
         ("s", "status", "status"),
         ("x", "stop", "stop"),
+        ("l", "clear", "clear"),
         ("t", "toggle_panel", "settings"),
         ("q", "quit", "quit"),
     ]
@@ -284,6 +291,7 @@ class LlnxTUI(App):
                 yield Button("backtest", id="backtest")
                 yield Button("check", id="check")
                 yield Button("stop", id="stopbtn")
+                yield Button("clear", id="clearbtn")
         yield Footer()
 
     # ── responsive layout ───────────────────────────────────────
@@ -312,7 +320,7 @@ class LlnxTUI(App):
         """
         columns = 4 if self._wide else 2
         field_rows = -(-FIELD_COUNT // columns) + 1  # ceil, +1 = token address
-        buttons = 1 if self._wide else 3             # one row, or two + gutter
+        buttons = 1 if self._wide else 5             # one row, or three + gutters
         chrome = 4 if self._compact else 5           # border, padding, spare
         wanted = field_rows * 2 + buttons + chrome   # each field: label + value
         return max(MIN_PANEL_ROWS, min(wanted, height // 2))
@@ -624,6 +632,11 @@ class LlnxTUI(App):
         for lvl, msg in rep.flags[:8]:
             lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
             self.call_from_thread(self._log, f"  [{lc}]·[/] {escape(msg)}")
+
+    @on(Button.Pressed, "#clearbtn")
+    def action_clear(self) -> None:
+        """Wipe the log. The run keeps going, and so do the journal and state."""
+        self.logbox.clear_all()
 
     @on(Button.Pressed, "#stopbtn")
     def action_stop(self) -> None:

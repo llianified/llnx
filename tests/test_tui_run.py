@@ -188,3 +188,36 @@ def test_the_status_band_follows_the_ticks():
     band = plain(asyncio.run(go()))
     assert "equity 104" in band and "+4.00%" in band
     assert "pos 0.5" in band and "today 3" in band
+
+
+def test_clear_empties_the_log_for_good():
+    """A cleared line must not come back when the terminal is resized."""
+    async def go():
+        app = tui.LlnxTUI(Config())
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            app._on_tick(tick(executed=fill()))
+            await pilot.pause()
+            before = len(app.logbox._history)
+            await pilot.press("l")
+            await pilot.pause()
+            after = len(app.logbox._history)
+            await pilot.resize_terminal(80, 30)   # a resize re-writes the history
+            await pilot.pause(); await pilot.pause()
+            return before, after, len(app.logbox._history), len(app.logbox.lines)
+    before, after, rewrapped, lines = asyncio.run(go())
+    assert before > 0 and after == 0 and rewrapped == 0 and lines == 0
+
+
+def test_clear_does_not_stop_a_run():
+    async def steps(pilot, app):
+        app.action_run()
+        for _ in range(5):
+            await pilot.pause()
+        app.action_clear()
+        await pilot.pause()
+        assert app._trading is True
+        assert app.logbox._history == []
+
+    app, fake = drive(steps)
+    assert fake.calls == [{"mode": "paper", "confirmed": False}]
