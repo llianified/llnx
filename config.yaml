@@ -49,6 +49,13 @@ take_profit_pct: 0.0       # 0.10 = sell at 10% profit
 # solana swaps
 jupiter_slippage_bps: 100  # 100 = 1% max slippage on a real swap
 safety_check: true         # honeypot/authority check before trading a token
+# Jupiter moves its public endpoints now and then. Leave these empty for the
+# built-in defaults (lite-api.jup.ag). If a quote 404s or the host is gone,
+# put the current one here — the previous generation was:
+#   jupiter_api_url: https://quote-api.jup.ag/v6
+#   jupiter_tokens_url: https://tokens.jup.ag/token
+jupiter_api_url: ""
+jupiter_tokens_url: ""
 
 # telegram notifications (env vars are safer: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
 telegram_token: ""

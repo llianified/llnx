@@ -103,10 +103,13 @@ def build_broker(cfg: Config, state: dict, *, confirmed: bool = False, log=print
                 f"[stop] real swaps on {chain.name} (EVM) are not supported yet "
                 "-- stay on paper. Only Solana can execute for real.")
         from .jupiter_broker import JupiterBroker
+        from .jupiter_broker import API_URL, TOKENS_URL
         return JupiterBroker(cfg.token_address, dry_run=cfg.mode == "sandbox",
                              cash=cfg.starting_cash, fee_rate=cfg.fee_rate,
                              min_notional=cfg.min_notional,
-                             slippage_bps=cfg.jupiter_slippage_bps, log=log)
+                             slippage_bps=cfg.jupiter_slippage_bps, log=log,
+                             api_url=cfg.jupiter_api_url or API_URL,
+                             tokens_url=cfg.jupiter_tokens_url or TOKENS_URL)
 
     from .live_broker import CcxtBroker       # CEX
     return CcxtBroker(cfg.exchange, cfg.symbol, sandbox=cfg.mode == "sandbox",
@@ -127,6 +130,21 @@ def restore_entry(broker, state: dict, log=print) -> None:
         setter(avg, float(state.get("last_buy_price") or avg))
         log(f"[state] restored average entry {avg:.8g} for a position of "
             f"{broker.position:.8f}")
+
+
+def format_tick(tick: dict) -> str:
+    """One line per poll, for whoever is not drawing its own."""
+    stamp = time.strftime("%H:%M:%S", time.localtime(tick["ts"]))
+    trade = tick["executed"]
+    if trade is not None:
+        mark = (f">>> {trade.side} {trade.amount:.8g} @ {trade.price:.8g} "
+                f"({trade.reason})")
+    elif tick["blocked"]:
+        mark = f"(held: {tick['blocked']})"
+    else:
+        mark = ""
+    return (f"[{stamp}] price={tick['price']:.8g} "
+            f"signal={tick['action']:<4} equity={tick['equity']:.4f}  {mark}")
 
 
 def mode_banner(cfg: Config, is_dex: bool) -> str:
@@ -221,17 +239,20 @@ def run_live(cfg: Config, *, confirmed: bool = False, log=print,
             if res.executed is not None:
                 _append_trade(cfg, res.executed)
             save_state(cfg.state_file, broker, session)
-            mark = ""
-            if res.executed is not None:
-                mark = (f">>> {res.executed.side} {res.executed.amount:.8g} @ "
-                        f"{res.executed.price:.8g} ({res.executed.reason})")
-            elif res.decision.action != "HOLD" and executor.last_block:
-                mark = f"(held: {executor.last_block})"
-            log(f"[{time.strftime('%H:%M:%S')}] price={price:.8g} "
-                f"signal={res.decision.action:<4} equity={res.equity:.4f}  {mark}")
+            tick = {
+                "ts": time.time(), "price": price, "action": res.decision.action,
+                "reason": res.decision.reason, "equity": res.equity,
+                "executed": res.executed, "cash": broker.cash,
+                "position": broker.position, "avg_entry": broker.avg_entry,
+                "trades_today": session.trades_today, "mode": cfg.mode,
+                # a block only means something when the engine wanted to trade
+                "blocked": (executor.last_block if res.decision.action != "HOLD"
+                            else ""),
+            }
             if on_tick:
-                on_tick({"price": price, "decision": res.decision, "equity": res.equity,
-                         "executed": res.executed, "blocked": executor.last_block})
+                on_tick(tick)
+            else:
+                log(format_tick(tick))
         except Exception as e:
             log(f"[warn] tick failed: {e!r} - will retry")
 

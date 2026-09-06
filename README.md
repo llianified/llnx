@@ -155,21 +155,33 @@ That is the whole install. Notes for Termux specifically:
 
 ## Layout (TUI)
 
-The output pane fills the top of the screen and the settings live in a bar at
-the bottom, so the same layout works in landscape and portrait. It reflows to
-the terminal size:
+Three bands, always in the same place:
+
+- **status** — mode, market, equity and P/L, cash, position, trades today. It
+  never goes away, so you can tell at a glance what the bot is holding.
+- **log** — one row per poll: time, price, and what happened. Quiet polls stay
+  dim; fills and blocked orders are the only things that light up.
+- **settings** — the bar at the bottom; press `t` to fold it away.
+
+Desktop (120x38):
+
+![TUI desktop](docs/tui.png)
+
+Live mode asks before it starts. Nothing is sent until the phrase is typed —
+the run button and the mode chip turn red as soon as you select it:
+
+![TUI live confirmation](docs/tui_live_confirm.png)
+
+The layout reflows to the terminal size:
 
 | terminal | layout |
 |---|---|
 | ≥ 96 columns | four columns of fields, buttons on one row |
 | < 96 columns | two columns of fields, buttons on two rows |
+| < 78 columns | log rows drop the fill price, the footer drops the palette hint |
 | < 28 rows | tighter spacing, the fields scroll if they do not fit |
-| < 22 rows | frames dropped, all remaining space goes to the output |
+| < 22 rows | status folds to one line, padding is dropped |
 | < 16 rows | settings bar hides itself; press `t` to bring it back |
-
-Desktop (120x38):
-
-![TUI desktop](docs/tui.png)
 
 Phone landscape (96x20):
 
@@ -179,9 +191,11 @@ Termux portrait (45x55):
 
 ![TUI Termux portrait](docs/tui_termux_portrait.png)
 
+Log rows are clipped, never wrapped, so a phone screen stays readable.
+Rotating the phone re-wraps the older lines instead of leaving them cut off.
+
 Keys: `b` backtest · `r` run · `c` safety check · `s` status · `x` stop ·
-`t` settings · `q` quit. The run button turns red in live mode, and the mode
-sits in the header the whole time.
+`t` settings · `q` quit.
 
 ## Command line
 
@@ -204,6 +218,48 @@ python3 main.py status --orders 20
 Guardrails have flags too: `--max-daily-loss`, `--max-trades`, `--cooldown`,
 `--max-order`. Stop with `Ctrl+C`; state goes to `state.json` and is picked up
 next time, daily counters included.
+
+## Going live, step by step
+
+1. **Paper, for a day.** `python3 main.py run --mode paper`. Check
+   `python3 main.py status --orders 20` afterwards: the journal is where you
+   find out whether the guardrails and the strategy behave the way you expected.
+2. **Sandbox.** Same command with `--mode sandbox`, with testnet keys in the
+   environment. This is the first time an order leaves the machine; make sure
+   what llnx booked matches what the testnet account shows.
+3. **Live, small.** Real money, tight guardrails, and watch the first fill:
+   ```bash
+   python3 main.py run --mode live --cash 20 \
+       --max-order 0.25 --cooldown 300 --max-trades 3 --sl 0.03
+   ```
+4. **Keep the brake within reach.** `python3 main.py stop` from any terminal,
+   or `x` in the TUI.
+
+### Exchange keys (CEX)
+
+```bash
+pip install ccxt
+export EXCHANGE_API_KEY="..."
+export EXCHANGE_API_SECRET="..."
+```
+
+Give the key **spot trading only**. Withdrawals must stay disabled, and if the
+exchange offers an IP allowlist, use it. `exchange: binance` in `config.yaml`
+picks the venue; sandbox mode uses that exchange's testnet.
+
+### Solana wallet (DEX)
+
+```bash
+pip install solders
+export SOLANA_PRIVATE_KEY="..."        # base58 — a burner wallet, not your main one
+export SOLANA_RPC_URL="https://..."    # a private RPC; public ones drop swaps
+```
+
+Keep a little SOL in the wallet for fees (llnx warns below ~0.005) and hold the
+trading balance in **USDC** — that is the quote side of every swap. Jupiter
+moves its public API from time to time; if a quote fails, llnx says so and
+names the setting to change (`jupiter_api_url`, `jupiter_tokens_url` in
+`config.yaml`).
 
 ## Multi-chain (Solana + EVM), scanning and safety checks
 
@@ -273,6 +329,10 @@ export TELEGRAM_CHAT_ID="123456789"
 
 With Telegram set, every trade is sent to you as it happens — handy when the
 bot is the one pressing the buttons.
+
+Everything that is not a secret lives in `config.yaml` — including the Jupiter
+endpoints (`jupiter_api_url`, `jupiter_tokens_url`), so a moved API is a
+one-line fix rather than a patch.
 
 ## Layout of the code
 ```

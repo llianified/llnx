@@ -1,51 +1,57 @@
-"""llnx full-screen TUI: minimal, lowercase, no icons, muted colours.
+"""llnx full-screen TUI: quiet colours, lowercase, no icons.
 
-The output pane fills the top of the screen and the settings sit in a bar at
-the bottom, so the layout works the same in landscape and portrait. The bar
-reflows to the terminal size: four columns of fields on wide screens, two on
-phones, and shorter widgets when the terminal is short.
+Three bands, always in the same place:
+
+  status   what the bot is and what it holds -- mode, market, equity, position
+  log      one row per poll, and every order in full
+  settings the bar at the bottom; press t to fold it away
 
 The run button drives the same loop as the CLI (`llnx.runner.run_live`), so
 whatever mode is selected -- paper, sandbox or live -- the orders go through
 the executor and its guardrails. Live mode asks you to type the phrase first.
 
+The layout reflows to the terminal: four columns of settings on a desktop, two
+on a phone, and shorter widgets when the screen is short.
+
 Needs: pip install textual   |   run: llnx
 """
 from __future__ import annotations
 
+from rich.markup import escape
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from rich.markup import escape
 from textual.widgets import (Button, Footer, Header, Input, Label, RichLog,
                              Select, Static)
 
 from .backtest import run_backtest, synthetic_prices
 from .chains import CHAINS
-from .config import Config, MODES
+from .config import MODES, Config
 from .execution import read_journal
 from .runner import CONFIRM_PHRASE, run_live
 from .strategies import build_strategy
 
-# muted palette (little colour, low saturation)
-A = "#8a9aa0"     # slate accent
-V = "#c9cdd6"     # values (soft)
-DIM = "#6b6f78"   # dimmed
-POS = "#86a789"   # muted green
-NEG = "#b08a8a"   # muted red
-MAUVE = "#9b93b0" # chain marker
-WARN = "#c9b273"  # muted amber
+# muted palette: one accent, everything else greyed back
+A = "#8fa6b2"      # accent (slate)
+V = "#d3d7df"      # values
+MUTED = "#8a8f99"  # values on a quiet row
+DIM = "#6a6f7a"    # labels and chrome
+POS = "#84a98c"    # muted green
+NEG = "#b08a8a"    # muted red
+WARN = "#c7b078"   # muted amber
+MAUVE = "#9b93b0"  # chain marker
 
-STRATEGY_LABELS = {
-    "sma": "sma · crossover",
-    "rsi": "rsi · oversold/overbought",
-    "grid": "grid · dca",
-}
 MODE_LABELS = {
     "paper": "paper · simulated",
     "sandbox": "sandbox · testnet",
     "live": "live · real money",
+}
+MODE_COLOURS = {"paper": DIM, "sandbox": WARN, "live": NEG}
+STRATEGY_LABELS = {
+    "sma": "sma · crossover",
+    "rsi": "rsi · oversold/overbought",
+    "grid": "grid · dca",
 }
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
 TOKEN_LABEL = "token address (optional → dex mode)"
@@ -57,7 +63,7 @@ WIDE_COLS = 96
 NARROW_COLS = 78
 # below this height widgets lose their borders and shrink to one line
 COMPACT_ROWS = 28
-# below this height the summary line and frames are dropped as well
+# below this height the status folds to one line and the frames are dropped
 SHORT_ROWS = 22
 # below this height the settings bar is hidden on its own (press t to show it)
 TINY_ROWS = 16
@@ -67,6 +73,17 @@ FIELD_COUNT = 8
 MIN_PANEL_ROWS = 6
 # log lines kept around so they can be re-wrapped when the terminal resizes
 LOG_HISTORY = 500
+# width of the price column in the log, so every row lines up
+PRICE_WIDTH = 11
+# below this many characters a reason is dropped rather than clipped to noise
+MIN_REASON = 8
+
+
+def clip(text: str, room: int) -> str:
+    """Trim text to `room` characters so a log row never wraps."""
+    if room < 4:
+        return ""
+    return text if len(text) <= room else text[:room - 1] + "…"
 
 
 class WrapLog(RichLog):
@@ -105,11 +122,12 @@ class ConfirmLive(ModalScreen[bool]):
     """Live mode is one typed phrase away, never one stray click."""
 
     CSS = """
-    ConfirmLive { align: center middle; background: #17181c 70%; }
-    #confirm { width: 60; max-width: 90%; height: auto; padding: 1 2;
-               background: #1d1e24; border: round #b08a8a; }
+    ConfirmLive { align: center middle; background: #131418 75%; }
+    #confirm { width: 58; max-width: 90%; height: auto; padding: 1 2;
+               background: #1a1b21; border: round #b08a8a; }
     #confirm Label { color: #c4b9b9; padding: 0; height: auto; }
-    #confirm Input { margin-top: 1; }
+    #confirm Input { margin-top: 1; background: #101115; color: #d3d7df;
+                     border: none; height: 1; padding: 0 1; }
     """
 
     BINDINGS = [("escape", "cancel", "cancel")]
@@ -133,52 +151,52 @@ class ConfirmLive(ModalScreen[bool]):
 
 class LlnxTUI(App):
     TITLE = "llnx"
-    SUB_TITLE = "auto-execute · paper · sandbox · live"
+    SUB_TITLE = "auto-execute"
 
     CSS = """
-    Screen { background: #17181c; layout: vertical; }
+    Screen { background: #131418; layout: vertical; color: #b9bec8; }
     * { scrollbar-size-vertical: 1; scrollbar-size-horizontal: 1;
-        scrollbar-background: #17181c; scrollbar-background-hover: #17181c;
-        scrollbar-background-active: #17181c; scrollbar-color: #2c2e36;
-        scrollbar-color-hover: #3a3d47; scrollbar-color-active: #4a4e59; }
+        scrollbar-background: #131418; scrollbar-background-hover: #131418;
+        scrollbar-background-active: #131418; scrollbar-color: #272932;
+        scrollbar-color-hover: #363945; scrollbar-color-active: #454956; }
     HeaderIcon { visibility: hidden; }
-    Header { background: #1d1e24; color: #8a9aa0; }
-    Footer { background: #1d1e24; }
-    FooterKey { background: #1d1e24; color: #6b6f78; }
-    FooterKey > .footer-key--key { color: #8a9aa0; background: #1d1e24; }
-    FooterKey > .footer-key--description { color: #6b6f78; background: #1d1e24; }
+    Header { background: #1a1b21; color: #8fa6b2; }
+    Footer { background: #1a1b21; }
+    FooterKey { background: #1a1b21; color: #6a6f7a; }
+    FooterKey > .footer-key--key { color: #8fa6b2; background: #1a1b21; }
+    FooterKey > .footer-key--description { color: #6a6f7a; background: #1a1b21; }
 
-    /* ── output on top ──────────────────────────────────────────── */
-    #main { height: 1fr; padding: 0 1; }
-    #summary { height: auto; padding: 0 2; margin-bottom: 1;
-               background: #1d1e24; border: round #2c2e36; color: #b4b8c0; }
-    #log { background: #14151a; border: round #2c2e36; padding: 0 1; }
+    /* ── status and output ──────────────────────────────────────── */
+    #main { height: 1fr; }
+    #status { height: auto; padding: 1 2 0 2; background: #131418;
+              color: #b9bec8; }
+    #log { background: #101115; border-top: solid #272932; padding: 1 2;
+           height: 1fr; }
 
     /* ── settings bar at the bottom ─────────────────────────────── */
-    #panel { padding: 1 2 0 2; background: #1d1e24; border-top: solid #2c2e36; }
+    #panel { padding: 1 2 0 2; background: #1a1b21; border-top: solid #272932; }
     #panel.hidden { display: none; }
     #fields { height: 1fr; layout: grid; grid-size: 2; grid-rows: auto;
               grid-gutter: 0 3; }
     .field { height: auto; }
-    Label { color: #6b6f78; padding: 0 1; height: 1; }
+    Label { color: #6a6f7a; padding: 0 1; height: 1; }
     Input { height: 1; border: none; padding: 0 1;
-            background: #14151a; color: #b4b8c0; }
-    Input:focus { background: #23252c; color: #d7dbe2; }
+            background: #101115; color: #b9bec8; }
+    Input:focus { background: #23252c; color: #d3d7df; }
     Select { height: 1; }
     Select > SelectCurrent { border: none; height: 1; padding: 0 1;
-                             background: #14151a; color: #b4b8c0; }
-    Select:focus > SelectCurrent { background: #23252c; }
+                             background: #101115; color: #b9bec8; }
+    Select:focus > SelectCurrent { background: #23252c; color: #d3d7df; }
+    SelectOverlay { border: round #272932; background: #1a1b21; }
 
     #actions { height: auto; layout: grid; grid-size: 2; grid-rows: auto;
                grid-gutter: 1 3; padding: 1 0; }
     Button { border: none; width: 1fr; min-width: 0; height: 1;
-             color: #b4b8c0; background: #23252c; }
-    Button:hover { background: #2b2e37; }
-    #backtest { background: #263029; color: #c6d2c8; }
-    #run { background: #24272e; color: #bcc1c9; }
-    #run.-live { background: #3a2a2b; color: #d8c3c3; }
-    #check { background: #24262d; color: #bcc1c9; }
-    #stopbtn { background: #2c2526; color: #c4b9b9; }
+             color: #b9bec8; background: #23252c; }
+    Button:hover { background: #2c2f38; }
+    #run { background: #26333a; color: #cfdde3; }
+    #run.-live { background: #3a2a2b; color: #dcc5c5; }
+    #stopbtn { color: #a89b9b; }
 
     /* ── wide terminal: four columns of fields, one row of buttons ─ */
     Screen.-wide #fields { grid-size: 4; }
@@ -189,9 +207,9 @@ class LlnxTUI(App):
     Screen.-compact #actions { padding: 1 0 0 0; }
     Screen.-narrow FooterKey.-command-palette { display: none; }
 
-    /* ── very short terminal: drop the frames ────────────────────── */
-    Screen.-short #main { padding: 0; }
-    Screen.-short #log { border: none; padding: 0 1; }
+    /* ── very short terminal: drop the padding ───────────────────── */
+    Screen.-short #status { padding: 0 1; }
+    Screen.-short #log { padding: 0 1; }
     Screen.-short #panel { padding: 0 1; }
     """
 
@@ -215,11 +233,17 @@ class LlnxTUI(App):
         self._short = None
         self._narrow = None
         self._auto_hidden = False
+        # live figures, filled in by the ticks
+        self._equity = cfg.starting_cash
+        self._cash = cfg.starting_cash
+        self._position = 0.0
+        self._entry = 0.0
+        self._trades_today = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical(id="main"):
-            yield Static(self._summary(), id="summary")
+            yield Static(self._status(), id="status")
             yield WrapLog(id="log", markup=True, highlight=False, wrap=True)
         with Vertical(id="panel"):
             with VerticalScroll(id="fields"):
@@ -256,8 +280,8 @@ class LlnxTUI(App):
                 yield Label(TOKEN_LABEL, id="token_label")
                 yield Input(self.cfg.token_address, id="token_address")
             with Vertical(id="actions"):
-                yield Button("backtest", id="backtest")
                 yield Button("run", id="run")
+                yield Button("backtest", id="backtest")
                 yield Button("check", id="check")
                 yield Button("stop", id="stopbtn")
         yield Footer()
@@ -267,7 +291,7 @@ class LlnxTUI(App):
         wide = width >= WIDE_COLS        # four columns of fields
         narrow = width < NARROW_COLS     # phone width: trim the footer
         compact = height < COMPACT_ROWS  # one-line widgets
-        short = height < SHORT_ROWS      # no frames around the output
+        short = height < SHORT_ROWS      # no padding, one-line status
         state = (wide, narrow, compact, short)
         changed = state != (self._wide, self._narrow, self._compact, self._short)
         if changed:
@@ -277,7 +301,7 @@ class LlnxTUI(App):
             self.screen.set_class(compact, "-compact")
             self.screen.set_class(short, "-short")
             self._relabel()
-            self._refresh_summary()
+            self._refresh_status()
         self._resize_panel(height)
 
     def _panel_rows(self, height: int) -> int:
@@ -335,13 +359,6 @@ class LlnxTUI(App):
         elif height >= TINY_ROWS and self._auto_hidden:
             panel.remove_class("hidden")
             self._auto_hidden = False
-        self._sync_summary()
-
-    def _sync_summary(self) -> None:
-        """The summary only earns its row while the settings bar is hidden."""
-        summary, panel = self.query("#summary"), self.query("#panel")
-        if summary and panel:
-            summary.first(Static).display = panel.first().has_class("hidden")
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_layout(event.size.width, event.size.height)
@@ -350,13 +367,12 @@ class LlnxTUI(App):
         panel = self.query_one("#panel")
         panel.toggle_class("hidden")
         self._auto_hidden = False
-        self._sync_summary()
         if panel.has_class("hidden"):
             self._log(f"[{DIM}]settings hidden (press t to show them).[/]")
         else:
             self.query_one("#cash", Input).focus()
 
-    # ── helpers ─────────────────────────────────────────────────
+    # ── the status band ─────────────────────────────────────────
     def _market(self) -> str:
         c = self.cfg
         if c.token_address:
@@ -366,28 +382,48 @@ class LlnxTUI(App):
         return f"[{V}]{c.symbol.lower()}[/]"
 
     def _mode_tag(self) -> str:
-        colour = {"paper": DIM, "sandbox": WARN, "live": NEG}[self.cfg.mode]
-        auto = "" if self.cfg.auto_execute else " (signals only)"
-        return f"[{colour}]{self.cfg.mode}{auto}[/]"
+        colour = MODE_COLOURS[self.cfg.mode]
+        auto = "" if self.cfg.auto_execute else " · signals only"
+        return f"[{colour}]● {self.cfg.mode}{auto}[/]"
 
-    def _summary(self) -> str:
+    def _pnl(self) -> str:
+        start = self.cfg.starting_cash or 1.0
+        pct = (self._equity / start - 1) * 100
+        colour = POS if pct > 0 else (NEG if pct < 0 else DIM)
+        return f"[{colour}]{pct:+.2f}%[/]"
+
+    def _state_word(self) -> str:
+        if self._trading:
+            return f"[{A}]running[/]"
+        return f"[{DIM}]idle[/]"
+
+    def _status(self) -> str:
         c = self.cfg
-        sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
-        tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
-        d = f"  [{DIM}]·[/]  "
-        if not self._wide:  # two short lines instead of one long, wrapped one
-            return (f"{self._mode_tag()} [{DIM}]·[/] {self._market()} [{DIM}]·[/] "
-                    f"{c.timeframe} [{DIM}]·[/] [{A}]{c.strategy}[/]\n"
-                    f"[{DIM}]cash[/] [{V}]{c.starting_cash:g}[/] [{DIM}]·[/] "
-                    f"sl [{V}]{sl}[/] [{DIM}]·[/] tp [{V}]{tp}[/]")
-        return (f"[{A}]llnx[/]{d}{self._mode_tag()}{d}cash [{V}]{c.starting_cash:g}[/]{d}"
-                f"{self._market()} [{DIM}]·[/] {c.timeframe}{d}strategy "
-                f"[{A}]{c.strategy}[/]{d}sl [{V}]{sl}[/] · tp [{V}]{tp}[/]")
+        d = f" [{DIM}]·[/] "
+        held = (f"[{DIM}]pos[/] [{V}]{self._position:.6g}[/]" if self._position
+                else f"[{DIM}]flat[/]")
+        if self._short:                      # one line, everything essential
+            return (f"{self._mode_tag()}{d}{self._market()}{d}[{A}]{c.strategy}[/]"
+                    f"{d}[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
+                    f"{d}{held}")
+        first = (f"{self._mode_tag()}   {self._market()}{d}{c.timeframe}"
+                 f"{d}[{A}]{c.strategy}[/]")
+        money = (f"[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
+                 f"   [{DIM}]cash[/] [{V}]{self._cash:.6g}[/]   {held}")
+        if self._wide:
+            sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
+            tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
+            first += f"   {self._state_word()}"
+            money += (f"   [{DIM}]sl[/] {sl} [{DIM}]·[/] [{DIM}]tp[/] {tp}"
+                      f"   [{DIM}]today[/] {self._trades_today}")
+        else:
+            first += f"   {self._state_word()}"
+        return f"{first}\n{money}"
 
-    def _refresh_summary(self) -> None:
-        summary = self.query("#summary")   # not there yet during the first compose
-        if summary:
-            summary.first(Static).update(self._summary())
+    def _refresh_status(self) -> None:
+        status = self.query("#status")   # not there yet during the first compose
+        if status:
+            status.first(Static).update(self._status())
 
     def _sync_cfg(self) -> None:
         def num(selector, default):
@@ -405,7 +441,9 @@ class LlnxTUI(App):
             take_profit_pct=num("#tp", 0.0),
             chain=self.query_one("#chain", Select).value,
             token_address=self.query_one("#token_address", Input).value.strip())
-        self._refresh_summary()
+        if not self._trading:
+            self._equity = self._cash = self.cfg.starting_cash
+        self._refresh_status()
         self._mark_live()
 
     def _mark_live(self) -> None:
@@ -428,10 +466,9 @@ class LlnxTUI(App):
 
     def _post_welcome(self) -> None:
         self._app_ready = True
-        self._log(f"[{A}]llnx.[/] set things up below, then backtest (b) or "
-                  "run (r).")
-        self._log(f"[{DIM}]run executes orders for real in the selected mode. "
-                  "paper is simulated, live is not.[/]")
+        self._log(f"[{A}]llnx[/] [{DIM}]· set up below, then run (r).[/]")
+        self._log(f"[{DIM}]paper is simulated. live is not.[/]")
+        self._log("")
 
     # ── actions ─────────────────────────────────────────────────
     @on(Select.Changed)
@@ -444,13 +481,12 @@ class LlnxTUI(App):
     @on(Button.Pressed, "#backtest")
     def action_backtest(self) -> None:
         self._sync_cfg()
-        self._log("")
         desc = build_strategy(self.cfg.strategy, self.cfg).describe().lower()
-        self._log(f"[{A}]backtest[/] · {desc}")
+        self._log(f"[{A}]backtest[/] [{DIM}]· {desc}[/]")
         try:
             rep = run_backtest(synthetic_prices(n=500), self.cfg)
         except Exception as e:
-            self._log(f"[{NEG}]error:[/] {e}")
+            self._log(f"  [{NEG}]error[/] {escape(str(e))}")
             return
         col = POS if rep.return_pct >= 0 else NEG
         bh = POS if rep.buy_hold_pct >= 0 else NEG
@@ -460,7 +496,8 @@ class LlnxTUI(App):
                   f"[{DIM}]fees[/] {rep.total_fees:.4f}")
         self._log(f"  [{DIM}]return      [/] [{col}]{rep.return_pct:+.2f}%[/]   "
                   f"[{DIM}]buy&hold[/] [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
-        self._log(f"[{DIM}]  (a backtest is no promise of live results)[/]")
+        self._log(f"  [{DIM}](a backtest is no promise of live results)[/]")
+        self._log("")
 
     @on(Button.Pressed, "#run")
     def action_run(self) -> None:
@@ -477,14 +514,15 @@ class LlnxTUI(App):
         if ok:
             self._start_run(confirmed=True)
         else:
-            self._log(f"[{DIM}]live mode cancelled — nothing was sent.[/]")
+            self._log(f"[{DIM}]live cancelled — nothing was sent.[/]")
 
     def _start_run(self, confirmed: bool = False) -> None:
         self._trading = True
-        colour = NEG if self.cfg.mode == "live" else A
-        self._log("")
-        self._log(f"[{colour}]{self.cfg.mode} run started[/] "
-                  f"[{DIM}](stop button / press x)[/]")
+        self._trades_today = 0
+        colour = MODE_COLOURS[self.cfg.mode]
+        self._log(f"[{colour}]{self.cfg.mode}[/] [{DIM}]· started "
+                  "(stop button / press x)[/]")
+        self._refresh_status()
         self._run_worker(confirmed)
 
     @work(thread=True, exclusive=True)
@@ -492,18 +530,73 @@ class LlnxTUI(App):
         """One worker for every mode -- it drives the same loop as the CLI."""
         def log(line: str = "") -> None:
             # runner output is plain text and full of [tags], so it is escaped
-            self.call_from_thread(self._log, escape(str(line)))
+            text = str(line).rstrip()
+            if not text or set(text) <= {"=", " "}:      # its banner rules
+                return
+            self.call_from_thread(self._log, f"[{DIM}]{escape(text)}[/]")
+
+        def tick(data: dict) -> None:
+            self.call_from_thread(self._on_tick, data)
 
         try:
-            run_live(self.cfg, confirmed=confirmed, log=log,
+            run_live(self.cfg, confirmed=confirmed, log=log, on_tick=tick,
                      should_run=lambda: self._trading)
         except SystemExit as e:
-            log(f"stopped: {e}")
+            self.call_from_thread(self._log, f"[{NEG}]stopped[/] {escape(str(e))}")
         except Exception as e:
-            self.call_from_thread(self._log, f"[{NEG}]run failed:[/] {e!r}")
+            self.call_from_thread(self._log, f"[{NEG}]run failed[/] {escape(repr(e))}")
         finally:
             self._trading = False
-            self.call_from_thread(self._log, f"[{DIM}]run finished.[/]")
+            self.call_from_thread(self._finished)
+
+    def _finished(self) -> None:
+        self._log(f"[{DIM}]run finished.[/]")
+        self._refresh_status()
+
+    def _on_tick(self, data: dict) -> None:
+        """One poll: refresh the status band and add a row to the log."""
+        import time as _t
+
+        self._equity = data["equity"]
+        self._cash = data["cash"]
+        self._position = data["position"]
+        self._entry = data.get("avg_entry", 0.0)
+        self._trades_today = data.get("trades_today", 0)
+        self._refresh_status()
+
+        stamp = _t.strftime("%H:%M:%S", _t.localtime(data["ts"]))
+        room = max(10, self._log_width() - len(stamp) - PRICE_WIDTH - 4)
+        # a poll where nothing happened stays quiet, so the trades stand out
+        quiet = data["executed"] is None and not data["blocked"]
+        price = MUTED if quiet else V
+        self._log(f"[{DIM}]{stamp}[/]  [{price}]{data['price']:>{PRICE_WIDTH}.8g}[/]  "
+                  + self._event(data, room))
+
+    def _log_width(self) -> int:
+        """Usable width inside the log: its padding and scrollbar do not count."""
+        inner = self.logbox.scrollable_content_region.width
+        return inner if inner > 0 else max(20, (self.size.width or 80) - 6)
+
+    def _event(self, data: dict, room: int) -> str:
+        """What happened on this poll, trimmed to the room the row has left."""
+        trade = data["executed"]
+        if trade is None:
+            if not data["blocked"]:
+                return f"[{DIM}]·[/]"
+            return f"[{WARN}]held[/] [{DIM}]{escape(clip(data['blocked'], room - 5))}[/]"
+
+        colour = POS if trade.side == "BUY" else NEG
+        head = f"{trade.side.lower():<4} {trade.amount:.6g}"
+        row = f"[{colour}]{trade.side.lower():<4}[/] [{V}]{trade.amount:.6g}[/]"
+        if not self._narrow:      # a phone has no room for the fill price
+            fill = f"{trade.price:.8g}"
+            head += f" @ {fill}"
+            row += f" [{DIM}]@[/] [{V}]{fill}[/]"
+        # a couple of clipped letters say nothing: show the reason or drop it
+        left = room - len(head) - 1
+        if trade.reason and left >= MIN_REASON:
+            row += f" [{DIM}]{escape(clip(trade.reason, left))}[/]"
+        return row
 
     @on(Button.Pressed, "#check")
     def action_check(self) -> None:
@@ -512,57 +605,58 @@ class LlnxTUI(App):
             self._log(f"[{DIM}]fill in a token address first to run a safety "
                       "check.[/]")
             return
-        self._log("")
-        self._log(f"[{A}]safety check[/] · {self.cfg.chain} · "
-                  f"{self.cfg.token_address[:8]}…")
+        self._log(f"[{A}]safety check[/] [{DIM}]· {self.cfg.chain} · "
+                  f"{self.cfg.token_address[:8]}…[/]")
         self._check_worker()
 
     @work(thread=True)
     def _check_worker(self) -> None:
         from .safety import check_token
-        rep = check_token(self.cfg.chain, self.cfg.token_address)
+        try:
+            rep = check_token(self.cfg.chain, self.cfg.token_address)
+        except Exception as e:
+            self.call_from_thread(self._log, f"  [{NEG}]error[/] {escape(repr(e))}")
+            return
         col = {"ok": POS, "warn": WARN, "danger": NEG, "unknown": DIM}.get(rep.level, DIM)
         self.call_from_thread(self._log,
-                              f"  status: [{col}]{rep.summary()}[/] "
+                              f"  [{DIM}]status[/] [{col}]{rep.summary()}[/] "
                               f"[{DIM}]({rep.source or '-'})[/]")
         for lvl, msg in rep.flags[:8]:
             lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
-            self.call_from_thread(self._log, f"  [{lc}]·[/] {msg}")
+            self.call_from_thread(self._log, f"  [{lc}]·[/] {escape(msg)}")
 
     @on(Button.Pressed, "#stopbtn")
     def action_stop(self) -> None:
         if self._trading:
             self._trading = False
-            self._log(f"[{NEG}]stopping after this tick...[/]")
+            self._log(f"[{NEG}]stopping[/] [{DIM}]after this tick...[/]")
 
     def action_status(self) -> None:
-        import json, os
+        import json
+        import os
         self._sync_cfg()
-        self._log("")
-        self._log(f"[{A}]status[/] · {self._mode_tag()}")
+        self._log(f"[{A}]status[/] [{DIM}]· {self.cfg.mode}[/]")
         if os.path.exists(self.cfg.state_file):
             with open(self.cfg.state_file) as fh:
                 st = json.load(fh)
-            self._log(f"  [{DIM}]cash[/] {st.get('cash',0):.4f}   "
-                      f"[{DIM}]position[/] {st.get('position',0):.8f}   "
-                      f"[{DIM}]entry[/] {st.get('avg_entry',0):.6g}")
+            self._log(f"  [{DIM}]cash[/] [{V}]{st.get('cash', 0):.4f}[/]   "
+                      f"[{DIM}]position[/] [{V}]{st.get('position', 0):.8g}[/]   "
+                      f"[{DIM}]entry[/] [{V}]{st.get('avg_entry', 0):.6g}[/]")
             session = st.get("session") or {}
-            if session.get("trades_today"):
-                self._log(f"  [{DIM}]today[/] {session['trades_today']} trades")
             if session.get("halt_reason"):
-                self._log(f"  [{NEG}]halted:[/] {escape(session['halt_reason'])}")
+                self._log(f"  [{NEG}]halted[/] {escape(session['halt_reason'])}")
         else:
             self._log(f"  [{DIM}]no saved state yet.[/]")
         rows = read_journal(self.cfg.orders_file, limit=5)
-        if rows:
-            self._log(f"  [{DIM}]last orders[/]")
         for r in rows:
             colour = {"filled": POS, "blocked": WARN, "failed": NEG}.get(
                 r.get("status"), DIM)
-            note = escape(r.get("reason") or r.get("error") or "")
-            self._log(f"   [{colour}]{r.get('status','?'):<8}[/] "
-                      f"{r.get('side','?').lower()} {r.get('amount',0):.6g} @ "
-                      f"{r.get('price',0):.6g} [{DIM}]{note}[/]")
+            note = escape(r.get("signal") or r.get("reason") or r.get("error") or "")
+            self._log(f"  [{colour}]{r.get('status', '?'):<8}[/] "
+                      f"[{DIM}]{r.get('side', '?').lower():<4}[/] "
+                      f"[{V}]{r.get('amount', 0):.6g}[/] [{DIM}]@[/] "
+                      f"[{V}]{r.get('price', 0):.8g}[/] [{DIM}]{note}[/]")
+        self._log("")
 
 
 def run_tui(cfg: Config) -> None:
