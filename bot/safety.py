@@ -1,7 +1,8 @@
-"""Cek keamanan token — Solana (RugCheck) & EVM (GoPlus).
+"""Token safety checks: RugCheck for Solana, GoPlus for EVM.
 
-Deteksi honeypot, mint/freeze authority, pajak jual/beli, LP terkunci, dsb.
-WAJIB dipakai sebelum beli beneran. Parser murni bisa dites tanpa jaringan.
+Looks for honeypots, mint/freeze authority, buy/sell tax, locked LP and so
+on. Run it before buying anything for real. The parsers are pure functions,
+so they can be tested without the network.
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ class SafetyReport:
     chain: str
     address: str
     level: str = "unknown"                 # ok | warn | danger | unknown
-    flags: List[Tuple[str, str]] = field(default_factory=list)  # (level, pesan)
+    flags: List[Tuple[str, str]] = field(default_factory=list)  # (level, message)
     source: str = ""
 
     @property
@@ -35,9 +36,9 @@ class SafetyReport:
             self.level = level
 
     def summary(self) -> str:
-        icon = {"ok": "aman", "warn": "hati-hati", "danger": "BAHAYA",
-                "unknown": "tak diketahui"}[self.level]
-        return f"{icon} ({len(self.flags)} catatan)"
+        word = {"ok": "safe", "warn": "careful", "danger": "DANGER",
+                "unknown": "unknown"}[self.level]
+        return f"{word} ({len(self.flags)} notes)"
 
 
 def _pct(v) -> float:
@@ -47,19 +48,19 @@ def _pct(v) -> float:
         return 0.0
 
 
-# ── parser murni ────────────────────────────────────────────────
+# ── pure parsers ────────────────────────────────────────────────
 def parse_rugcheck(data: dict, address: str) -> SafetyReport:
     r = SafetyReport(chain="solana", address=address, source="rugcheck")
     if data.get("mintAuthority"):
-        r.add("warn", "mint authority aktif — supply bisa ditambah")
+        r.add("warn", "mint authority is active - supply can be increased")
     if data.get("freezeAuthority"):
-        r.add("danger", "freeze authority aktif — token kamu bisa dibekukan")
+        r.add("danger", "freeze authority is active - your tokens can be frozen")
     for risk in (data.get("risks") or []):
         lvl = "danger" if str(risk.get("level", "")).lower() in ("danger", "high") else "warn"
-        name = risk.get("name") or "risiko"
+        name = risk.get("name") or "risk"
         r.add(lvl, f"{name}: {risk.get('description', '')}".strip(": "))
     if not r.flags:
-        r.add("ok", "tidak ada flag mencolok dari rugcheck")
+        r.add("ok", "no obvious flags from rugcheck")
     return r
 
 
@@ -69,37 +70,37 @@ def parse_goplus(data: dict, address: str) -> SafetyReport:
     info = result.get(address.lower()) or (next(iter(result.values()), {}) if result else {})
     if not info:
         r.level = "unknown"
-        r.add("unknown", "data goplus kosong")
+        r.add("unknown", "goplus returned nothing")
         return r
     if str(info.get("is_honeypot")) == "1":
-        r.add("danger", "HONEYPOT — token tidak bisa dijual")
+        r.add("danger", "HONEYPOT - the token cannot be sold")
     if str(info.get("cannot_sell_all")) == "1":
-        r.add("danger", "tidak bisa jual semua (cannot_sell_all)")
+        r.add("danger", "cannot sell the full position (cannot_sell_all)")
     buy_tax, sell_tax = _pct(info.get("buy_tax")), _pct(info.get("sell_tax"))
     if sell_tax >= 20 or buy_tax >= 20:
-        r.add("danger", f"pajak ekstrem (beli {buy_tax:g}% / jual {sell_tax:g}%)")
+        r.add("danger", f"extreme tax (buy {buy_tax:g}% / sell {sell_tax:g}%)")
     elif sell_tax > 5 or buy_tax > 5:
-        r.add("warn", f"pajak tinggi (beli {buy_tax:g}% / jual {sell_tax:g}%)")
+        r.add("warn", f"high tax (buy {buy_tax:g}% / sell {sell_tax:g}%)")
     if str(info.get("is_mintable")) == "1":
-        r.add("warn", "kontrak bisa mint token baru")
+        r.add("warn", "the contract can mint new tokens")
     if str(info.get("can_take_back_ownership")) == "1":
-        r.add("warn", "owner bisa ambil-alih kembali")
+        r.add("warn", "the owner can take ownership back")
     if str(info.get("hidden_owner")) == "1":
-        r.add("warn", "ada hidden owner")
+        r.add("warn", "there is a hidden owner")
     if str(info.get("is_open_source")) == "0":
-        r.add("warn", "kontrak tidak open-source / belum diverifikasi")
+        r.add("warn", "the contract is not open-source or unverified")
     holders = info.get("lp_holders") or []
     locked = any(str(h.get("is_locked")) == "1" for h in holders)
     if holders and not locked:
-        r.add("warn", "likuiditas (LP) tampaknya tidak terkunci")
+        r.add("warn", "liquidity (LP) does not look locked")
     elif locked:
-        r.add("ok", "sebagian LP terkunci")
+        r.add("ok", "part of the LP is locked")
     if not r.flags:
-        r.add("ok", "tidak ada flag mencolok dari goplus")
+        r.add("ok", "no obvious flags from goplus")
     return r
 
 
-# ── jaringan ────────────────────────────────────────────────────
+# ── network ─────────────────────────────────────────────────────
 def check_token(chain_id: str, address: str) -> SafetyReport:
     chain = get_chain(chain_id)
     try:
@@ -110,5 +111,5 @@ def check_token(chain_id: str, address: str) -> SafetyReport:
         return parse_goplus(data, address)
     except Exception as e:
         rep = SafetyReport(chain=chain.id, address=address)
-        rep.add("unknown", f"gagal cek: {e!r}")
+        rep.add("unknown", f"check failed: {e!r}")
         return rep

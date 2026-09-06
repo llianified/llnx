@@ -1,4 +1,4 @@
-"""Backtest: jalankan strategi apa pun ke deret harga historis/sintetis."""
+"""Backtest: run any strategy over a historical or synthetic price series."""
 from __future__ import annotations
 
 import math
@@ -50,7 +50,7 @@ def run_backtest(closes: Sequence[float], cfg: Config) -> BacktestReport:
 
 
 def synthetic_prices(n: int = 500, start: float = 100.0, seed: int = 42) -> List[float]:
-    """Deret harga sintetis (tren + gelombang + noise) untuk demo offline."""
+    """Synthetic prices (trend + wave + noise) for offline demos."""
     rng = random.Random(seed)
     out, price = [], start
     for i in range(n):

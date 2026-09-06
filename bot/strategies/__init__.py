@@ -1,4 +1,4 @@
-"""Registry strategi: bikin strategi dari nama + Config."""
+"""Strategy registry: build a strategy from its name plus a Config."""
 from __future__ import annotations
 
 from .base import Context, Decision, Strategy
@@ -6,11 +6,11 @@ from .grid import GridDcaStrategy
 from .rsi import RsiStrategy
 from .sma import SmaCrossStrategy
 
-# nama -> deskripsi singkat untuk menu/help
+# name -> short description, used by the menu and --help
 AVAILABLE = {
-    "sma": "SMA crossover — beli golden cross, jual death cross",
-    "rsi": "RSI — beli saat oversold, jual saat overbought",
-    "grid": "Grid/DCA — beli bertahap saat turun, jual saat take-profit",
+    "sma": "SMA crossover - buy the golden cross, sell the death cross",
+    "rsi": "RSI - buy when oversold, sell when overbought",
+    "grid": "Grid/DCA - buy in steps on the way down, sell at take-profit",
 }
 
 
@@ -23,7 +23,7 @@ def build_strategy(name: str, cfg) -> Strategy:
     if name == "grid":
         return GridDcaStrategy(cfg.grid_step_pct, cfg.grid_take_profit_pct,
                                cfg.grid_max_steps)
-    raise ValueError(f"strategi '{name}' tidak dikenal. Pilihan: {', '.join(AVAILABLE)}")
+    raise ValueError(f"unknown strategy '{name}'. Options: {', '.join(AVAILABLE)}")
 
 
 __all__ = ["Context", "Decision", "Strategy", "AVAILABLE", "build_strategy",

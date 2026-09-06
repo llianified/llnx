@@ -1,4 +1,4 @@
-"""Strategi SMA crossover: beli golden cross, jual death cross (all-in)."""
+"""SMA crossover: buy the golden cross, sell the death cross (all in)."""
 from __future__ import annotations
 
 from typing import Sequence
@@ -12,7 +12,7 @@ class SmaCrossStrategy(Strategy):
 
     def __init__(self, fast: int, slow: int) -> None:
         if fast >= slow:
-            raise ValueError("fast harus < slow")
+            raise ValueError("fast must be < slow")
         self.fast, self.slow = fast, slow
 
     @property

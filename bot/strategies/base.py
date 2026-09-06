@@ -1,4 +1,4 @@
-"""Kontrak dasar strategi: Context masuk, Decision keluar."""
+"""The strategy contract: a Context goes in, a Decision comes out."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 
 @dataclass
 class Context:
-    """Kondisi pasar & portofolio saat pengambilan keputusan."""
+    """Market and portfolio state at the moment of the decision."""
     price: float
     cash: float
     position: float
@@ -19,8 +19,8 @@ class Context:
 @dataclass
 class Decision:
     action: str                          # "BUY" | "SELL" | "HOLD"
-    quote_amount: Optional[float] = None  # BUY: nilai quote; None = all-in
-    fraction: Optional[float] = None      # SELL: fraksi posisi; None = semua
+    quote_amount: Optional[float] = None  # BUY: quote value; None = all in
+    fraction: Optional[float] = None      # SELL: share of the position; None = all
     reason: str = ""
 
 
@@ -32,7 +32,7 @@ class Strategy:
 
     @property
     def warmup(self) -> int:
-        """Jumlah candle minimum sebelum sinyal valid."""
+        """Candles needed before the signal means anything."""
         return 1
 
     def describe(self) -> str:

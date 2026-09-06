@@ -1,16 +1,17 @@
-"""tui minimalis — huruf kecil, tanpa ikon, warna kalem. bisa diklik & keyboard.
+"""Full-screen TUI: minimal, lowercase, no icons, muted colours.
 
-layout landscape-first: di layar lebar (desktop / hp diputar) pengaturan ada di
-kiri dan log di kanan. di layar sempit (termux portrait) layout otomatis
-menumpuk ke bawah, dan bisa dipadatkan lagi kalau tinggi layar mepet.
+The output pane fills the top of the screen and the settings sit in a bar at
+the bottom, so the layout works the same in landscape and portrait. The bar
+reflows to the terminal size: four columns of fields on wide screens, two on
+phones, and shorter widgets when the terminal is short.
 
-butuh: pip install textual   |   jalankan: python3 main.py
+Needs: pip install textual   |   run: python3 main.py
 """
 from __future__ import annotations
 
 from textual import events, on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.widgets import (Button, Footer, Header, Input, Label, RichLog,
                              Select, Static)
 
@@ -19,44 +20,52 @@ from .chains import CHAINS
 from .config import Config
 from .strategies import build_strategy
 
-# palet kalem (sedikit warna, low-saturation)
-A = "#8a9aa0"     # aksen slate
-V = "#c9cdd6"     # nilai (soft)
-DIM = "#6b6f78"   # redup
-POS = "#86a789"   # hijau kalem
-NEG = "#b08a8a"   # merah kalem
-MAUVE = "#9b93b0" # penanda chain
-WARN = "#c9b273"  # amber kalem
+# muted palette (little colour, low saturation)
+A = "#8a9aa0"     # slate accent
+V = "#c9cdd6"     # values (soft)
+DIM = "#6b6f78"   # dimmed
+POS = "#86a789"   # muted green
+NEG = "#b08a8a"   # muted red
+MAUVE = "#9b93b0" # chain marker
+WARN = "#c9b273"  # muted amber
 
-STRAT_LABELS = {
+STRATEGY_LABELS = {
     "sma": "sma · crossover",
     "rsi": "rsi · oversold/overbought",
     "grid": "grid · dca",
 }
-TFS = ("1m", "5m", "15m", "1h", "4h")
+TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
+TOKEN_LABEL = "token address (optional → dex mode)"
+TOKEN_LABEL_SHORT = "token address (optional)"
 
-# ambang layout: di bawah ini pengaturan pindah ke atas (menumpuk), bukan ke kiri
+# from this width up the settings bar uses four columns instead of two
+WIDE_COLS = 96
+# below this width the footer drops the command-palette hint to save room
 NARROW_COLS = 78
-# di bawah ini widget dirapatkan (border input dilepas) biar muat
+# below this height widgets lose their borders and shrink to one line
 COMPACT_ROWS = 28
-# layar benar-benar pendek (hp landscape): buang ringkasan & bingkai
+# below this height the summary line and frames are dropped as well
 SHORT_ROWS = 22
-# baris log yang disimpan untuk digambar ulang saat ukuran layar berubah
+# below this height the settings bar is hidden on its own (press t to show it)
+TINY_ROWS = 16
+# fields in the settings grid (the token address gets its own row below them)
+FIELD_COUNT = 7
+# the settings bar never shrinks below this, it would hide the buttons
+MIN_PANEL_ROWS = 6
+# log lines kept around so they can be re-wrapped when the terminal resizes
 LOG_HISTORY = 500
-# tinggi panel pengaturan saat menumpuk (baris) — sisanya buat log
-PANEL_ROWS = 16
 
 
 class WrapLog(RichLog):
-    """log yang mengingat isinya, lalu membungkus ulang saat lebar layar berubah.
+    """A log that remembers its lines and re-wraps them when the width changes.
 
-    RichLog membungkus teks sekali saat ditulis, jadi kalau hp diputar
-    baris lama harus digambar ulang biar tidak kepotong.
+    RichLog wraps text once, when it is written, so rotating a phone would
+    otherwise leave every old line clipped at the previous width.
     """
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        # RichLog default membungkus di 78 kolom; di layar hp itu bikin kepotong.
+        # RichLog wraps at 78 columns by default, which clips on a phone.
         self.min_width = 10
         self._history: list[str] = []
         self._width = 0
@@ -84,7 +93,11 @@ class BotTUI(App):
     SUB_TITLE = "paper · solana · sma · rsi · grid"
 
     CSS = """
-    Screen { background: #17181c; layout: horizontal; }
+    Screen { background: #17181c; layout: vertical; }
+    * { scrollbar-size-vertical: 1; scrollbar-size-horizontal: 1;
+        scrollbar-background: #17181c; scrollbar-background-hover: #17181c;
+        scrollbar-background-active: #17181c; scrollbar-color: #2c2e36;
+        scrollbar-color-hover: #3a3d47; scrollbar-color-active: #4a4e59; }
     HeaderIcon { visibility: hidden; }
     Header { background: #1d1e24; color: #8a9aa0; }
     Footer { background: #1d1e24; }
@@ -92,51 +105,50 @@ class BotTUI(App):
     FooterKey > .footer-key--key { color: #8a9aa0; background: #1d1e24; }
     FooterKey > .footer-key--description { color: #6b6f78; background: #1d1e24; }
 
-    #sidebar { width: 42; height: 1fr; padding: 0 1;
-               background: #1d1e24; border: round #2c2e36; }
-    #sidebar.hidden { display: none; }
-    #settings { height: auto; }
-    #title { color: #8a9aa0; padding: 0 1; }
-    .col { width: 1fr; height: auto; }
-    .row { height: auto; }
+    /* ── output on top ──────────────────────────────────────────── */
+    #main { height: 1fr; padding: 0 1; }
+    #summary { height: auto; padding: 0 2; margin-bottom: 1;
+               background: #1d1e24; border: round #2c2e36; color: #b4b8c0; }
+    #log { background: #14151a; border: round #2c2e36; padding: 0 1; }
+
+    /* ── settings bar at the bottom ─────────────────────────────── */
+    #panel { padding: 1 2 0 2; background: #1d1e24; border-top: solid #2c2e36; }
+    #panel.hidden { display: none; }
+    #fields { height: 1fr; layout: grid; grid-size: 2; grid-rows: auto;
+              grid-gutter: 0 3; }
+    .field { height: auto; }
     Label { color: #6b6f78; padding: 0 1; height: 1; }
-    Input { border: round #2c2e36; background: #14151a; color: #b4b8c0; height: 3; }
-    Input:focus { border: round #5f767c; }
-    Select { height: 3; }
-    Select > SelectCurrent { color: #b4b8c0; }
-    #btnbox { height: auto; padding: 1 0 0 0; }
-    Button { margin: 0 1 1 0; border: none; width: 1fr; min-width: 0;
+    Input { height: 1; border: none; padding: 0 1;
+            background: #14151a; color: #b4b8c0; }
+    Input:focus { background: #23252c; color: #d7dbe2; }
+    Select { height: 1; }
+    Select > SelectCurrent { border: none; height: 1; padding: 0 1;
+                             background: #14151a; color: #b4b8c0; }
+    Select:focus > SelectCurrent { background: #23252c; }
+
+    #actions { height: auto; layout: grid; grid-size: 2; grid-rows: auto;
+               grid-gutter: 1 3; padding: 1 0; }
+    Button { border: none; width: 1fr; min-width: 0; height: 1;
              color: #b4b8c0; background: #23252c; }
     Button:hover { background: #2b2e37; }
     #backtest { background: #263029; color: #c6d2c8; }
     #paper { background: #24272e; color: #bcc1c9; }
     #check { background: #24262d; color: #bcc1c9; }
     #stopbtn { background: #2c2526; color: #c4b9b9; }
-    #main { width: 1fr; padding: 0 1; }
-    #summary { height: auto; padding: 1 2; margin-bottom: 1;
-               background: #1d1e24; border: round #2c2e36; color: #b4b8c0; }
-    #log { background: #14151a; border: round #2c2e36; padding: 0 1; }
 
-    /* ── layar sempit (termux portrait): tumpuk ke bawah ─────────── */
-    Screen.-narrow { layout: vertical; }
-    Screen.-narrow #sidebar { width: 1fr; }   /* tinggi diatur di _apply_layout */
-    Screen.-narrow #main { width: 1fr; height: 1fr; padding: 0; }
-    Screen.-narrow #summary { padding: 0 1; margin-bottom: 0; }
+    /* ── wide terminal: four columns of fields, one row of buttons ─ */
+    Screen.-wide #fields { grid-size: 4; }
+    Screen.-wide #actions { grid-size: 4; }
+
+    /* ── short terminal: tighter spacing ─────────────────────────── */
+    Screen.-compact #panel { padding: 0 2; }
+    Screen.-compact #actions { padding: 1 0 0 0; }
     Screen.-narrow FooterKey.-command-palette { display: none; }
 
-    /* ── ruang mepet: rapatkan widget, tombol tetap kelihatan ────── */
-    Screen.-compact #settings { height: 1fr; }
-    Screen.-compact Input { height: 1; border: none; padding: 0 1; }
-    Screen.-compact Input:focus { border: none; background: #1b1d23; }
-    Screen.-compact Select { height: 1; }
-    Screen.-compact Select > SelectCurrent { border: none; height: 1; padding: 0 1; }
-    Screen.-compact Button { height: 1; }
-    Screen.-compact #btnbox { padding: 1 0 0 0; }
-
-    /* ── layar benar-benar pendek (hp landscape): buang hiasan ───── */
-    Screen.-short #summary { display: none; }
-    Screen.-short #sidebar { border: none; }
-    Screen.-short #log { border: none; }
+    /* ── very short terminal: drop the frames ────────────────────── */
+    Screen.-short #main { padding: 0; }
+    Screen.-short #log { border: none; padding: 0 1; }
+    Screen.-short #panel { padding: 0 1; }
     """
 
     BINDINGS = [
@@ -145,8 +157,8 @@ class BotTUI(App):
         ("c", "check", "check"),
         ("s", "status", "status"),
         ("x", "stop", "stop"),
-        ("t", "toggle_settings", "atur"),
-        ("q", "quit", "keluar"),
+        ("t", "toggle_panel", "settings"),
+        ("q", "quit", "quit"),
     ]
 
     def __init__(self, cfg: Config) -> None:
@@ -154,94 +166,145 @@ class BotTUI(App):
         self.cfg = cfg
         self._paper_running = False
         self._app_ready = False
-        self._narrow = False
-        self._compact = False
-        self._short = False
-        self._hinted_narrow = False
+        self._wide = None      # set on the first layout pass
+        self._compact = None
+        self._short = None
+        self._narrow = None
+        self._auto_hidden = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(id="sidebar"):
-            with VerticalScroll(id="settings"):
-                yield Static("pengaturan", id="title")
-                with Horizontal(classes="row"):
-                    with Vertical(classes="col"):
-                        yield Label("modal ($)")
-                        yield Input(str(self.cfg.starting_cash), id="cash", type="number")
-                    with Vertical(classes="col"):
-                        yield Label("pasangan")
-                        yield Input(self.cfg.symbol.lower(), id="symbol")
-                with Horizontal(classes="row"):
-                    with Vertical(classes="col"):
-                        yield Label("timeframe")
-                        yield Select([(t, t) for t in TFS], value=self.cfg.timeframe,
-                                     id="timeframe", allow_blank=False)
-                    with Vertical(classes="col"):
-                        yield Label("chain")
-                        yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
-                                     value=self.cfg.chain, id="chain", allow_blank=False)
-                yield Label("strategi")
-                yield Select([(STRAT_LABELS[n], n) for n in STRAT_LABELS],
-                             value=self.cfg.strategy, id="strategy", allow_blank=False)
-                yield Label("token address (opsional → mode dex)")
-                yield Input(self.cfg.token_address, id="token")
-                with Horizontal(classes="row"):
-                    with Vertical(classes="col"):
-                        yield Label("stop-loss")
-                        yield Input(str(self.cfg.stop_loss_pct), id="sl", type="number")
-                    with Vertical(classes="col"):
-                        yield Label("take-profit")
-                        yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
-            with Vertical(id="btnbox"):
-                with Horizontal(classes="row"):
-                    yield Button("backtest", id="backtest")
-                    yield Button("paper", id="paper")
-                with Horizontal(classes="row"):
-                    yield Button("check", id="check")
-                    yield Button("stop", id="stopbtn")
         with Vertical(id="main"):
             yield Static(self._summary(), id="summary")
             yield WrapLog(id="log", markup=True, highlight=False, wrap=True)
+        with Vertical(id="panel"):
+            with VerticalScroll(id="fields"):
+                with Vertical(classes="field"):
+                    yield Label("cash ($)")
+                    yield Input(str(self.cfg.starting_cash), id="cash", type="number")
+                with Vertical(classes="field"):
+                    yield Label("pair")
+                    yield Input(self.cfg.symbol.lower(), id="symbol")
+                with Vertical(classes="field"):
+                    yield Label("timeframe")
+                    yield Select([(t, t) for t in TIMEFRAMES], value=self.cfg.timeframe,
+                                 id="timeframe", allow_blank=False)
+                with Vertical(classes="field"):
+                    yield Label("strategy")
+                    yield Select([(STRATEGY_LABELS[n], n) for n in STRATEGY_LABELS],
+                                 value=self.cfg.strategy, id="strategy",
+                                 allow_blank=False)
+                with Vertical(classes="field"):
+                    yield Label("chain")
+                    yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
+                                 value=self.cfg.chain, id="chain", allow_blank=False)
+                with Vertical(classes="field"):
+                    yield Label("stop-loss")
+                    yield Input(str(self.cfg.stop_loss_pct), id="sl", type="number")
+                with Vertical(classes="field"):
+                    yield Label("take-profit")
+                    yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
+            with Vertical(id="token", classes="field"):
+                yield Label(TOKEN_LABEL, id="token_label")
+                yield Input(self.cfg.token_address, id="token_address")
+            with Vertical(id="actions"):
+                yield Button("backtest", id="backtest")
+                yield Button("paper", id="paper")
+                yield Button("check", id="check")
+                yield Button("stop", id="stopbtn")
         yield Footer()
 
-    # ── layout responsif ────────────────────────────────────────
+    # ── responsive layout ───────────────────────────────────────
     def _apply_layout(self, width: int, height: int) -> None:
-        """pilih layout dari ukuran terminal (landscape = layout utama)."""
-        narrow = width < NARROW_COLS               # tumpuk ke bawah
-        compact = narrow or height < COMPACT_ROWS  # rapatkan widget
-        short = height < SHORT_ROWS                # buang ringkasan & bingkai
-        sidebar = self.query("#sidebar")
-        if sidebar:
-            # menumpuk: panel secukupnya (maks separuh layar), sisanya buat log.
-            # berdampingan: biarkan CSS yang atur (setinggi layar).
-            sidebar.first().styles.height = (
-                min(PANEL_ROWS, max(7, height // 2)) if narrow else None)
-        if (narrow, compact, short) == (self._narrow, self._compact, self._short):
+        wide = width >= WIDE_COLS        # four columns of fields
+        narrow = width < NARROW_COLS     # phone width: trim the footer
+        compact = height < COMPACT_ROWS  # one-line widgets
+        short = height < SHORT_ROWS      # no frames around the output
+        state = (wide, narrow, compact, short)
+        changed = state != (self._wide, self._narrow, self._compact, self._short)
+        if changed:
+            self._wide, self._narrow, self._compact, self._short = state
+            self.screen.set_class(wide, "-wide")
+            self.screen.set_class(narrow, "-narrow")
+            self.screen.set_class(compact, "-compact")
+            self.screen.set_class(short, "-short")
+            self._relabel()
+            self._refresh_summary()
+        self._resize_panel(height)
+
+    def _panel_rows(self, height: int) -> int:
+        """How tall the settings bar may be, in rows.
+
+        It asks for what its fields need and never takes more than half the
+        screen; if capped, the fields scroll and the buttons stay put.
+        """
+        columns = 4 if self._wide else 2
+        field_rows = -(-FIELD_COUNT // columns) + 1  # ceil, +1 = token address
+        buttons = 1 if self._wide else 3             # one row, or two + gutter
+        chrome = 4 if self._compact else 5           # border, padding, spare
+        wanted = field_rows * 2 + buttons + chrome   # each field: label + value
+        return max(MIN_PANEL_ROWS, min(wanted, height // 2))
+
+    def _resize_panel(self, height: int) -> None:
+        panel = self.query("#panel")
+        if panel:
+            panel.first().styles.height = self._panel_rows(height)
+        self._auto_hide_panel(height)
+
+    def _relabel(self) -> None:
+        """Shorten the wordy labels when the terminal is narrow."""
+        label = self.query("#token_label")
+        if label:
+            label.first(Label).update(TOKEN_LABEL if self._wide else TOKEN_LABEL_SHORT)
+        strategy = self.query("#strategy")
+        if strategy:
+            select = strategy.first(Select)
+            names = list(STRATEGY_LABELS)
+            current = select.value if select.value in names else names[0]
+            select.set_options([(STRATEGY_LABELS[n] if self._wide else n, n)
+                                for n in names])
+            # set_options keeps the old text on screen when the value does not
+            # change, so move the value away and back to redraw it
+            select.value = next(n for n in names if n != current)
+            select.value = current
+
+    def _auto_hide_panel(self, height: int) -> None:
+        """On a very short terminal the bar would leave no room for output."""
+        panel = self.query("#panel")
+        if not panel:
             return
-        self._narrow, self._compact, self._short = narrow, compact, short
-        self.screen.set_class(narrow, "-narrow")
-        self.screen.set_class(compact, "-compact")
-        self.screen.set_class(short, "-short")
-        self._refresh_summary()
-        if self._app_ready and narrow and not self._hinted_narrow:
-            self._hinted_narrow = True
-            self._log(f"[{DIM}]layar sempit ({width} kolom). putar hp ke landscape "
-                      "untuk tampilan penuh, atau tekan t untuk sembunyikan "
-                      "pengaturan.[/]")
+        panel = panel.first()
+        if height < TINY_ROWS and not panel.has_class("hidden"):
+            panel.add_class("hidden")
+            self._auto_hidden = True
+            if self._app_ready:
+                self._log(f"[{DIM}]screen is very short — settings hidden, "
+                          "press t to show them.[/]")
+        elif height >= TINY_ROWS and self._auto_hidden:
+            panel.remove_class("hidden")
+            self._auto_hidden = False
+        self._sync_summary()
+
+    def _sync_summary(self) -> None:
+        """The summary only earns its row while the settings bar is hidden."""
+        summary, panel = self.query("#summary"), self.query("#panel")
+        if summary and panel:
+            summary.first(Static).display = panel.first().has_class("hidden")
 
     def on_resize(self, event: events.Resize) -> None:
         self._apply_layout(event.size.width, event.size.height)
 
-    def action_toggle_settings(self) -> None:
-        sidebar = self.query_one("#sidebar")
-        sidebar.toggle_class("hidden")
-        if sidebar.has_class("hidden"):
-            self._log(f"[{DIM}]pengaturan disembunyikan (tekan t "
-                      "untuk memunculkan).[/]")
+    def action_toggle_panel(self) -> None:
+        panel = self.query_one("#panel")
+        panel.toggle_class("hidden")
+        self._auto_hidden = False
+        self._sync_summary()
+        if panel.has_class("hidden"):
+            self._log(f"[{DIM}]settings hidden (press t to show them).[/]")
         else:
             self.query_one("#cash", Input).focus()
 
-    # ── util ────────────────────────────────────────────────────
+    # ── helpers ─────────────────────────────────────────────────
     def _market(self) -> str:
         c = self.cfg
         if c.token_address:
@@ -255,24 +318,24 @@ class BotTUI(App):
         sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
         tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
         d = f"  [{DIM}]·[/]  "
-        if self._narrow:  # dua baris pendek biar tak jadi kolom cacing
+        if not self._wide:  # two short lines instead of one long, wrapped one
             return (f"{self._market()} [{DIM}]·[/] {c.timeframe} [{DIM}]·[/] "
                     f"[{A}]{c.strategy}[/]\n"
-                    f"[{DIM}]modal[/] [{V}]{c.starting_cash:g}[/] [{DIM}]·[/] "
+                    f"[{DIM}]cash[/] [{V}]{c.starting_cash:g}[/] [{DIM}]·[/] "
                     f"sl [{V}]{sl}[/] [{DIM}]·[/] tp [{V}]{tp}[/]")
-        return (f"[{A}]bot trading[/]{d}modal [{V}]{c.starting_cash:g}[/]{d}"
-                f"{self._market()} [{DIM}]·[/] {c.timeframe}{d}strategi "
+        return (f"[{A}]bot trading[/]{d}cash [{V}]{c.starting_cash:g}[/]{d}"
+                f"{self._market()} [{DIM}]·[/] {c.timeframe}{d}strategy "
                 f"[{A}]{c.strategy}[/]{d}sl [{V}]{sl}[/] · tp [{V}]{tp}[/]")
 
     def _refresh_summary(self) -> None:
-        summary = self.query("#summary")   # belum ada saat compose pertama
+        summary = self.query("#summary")   # not there yet during the first compose
         if summary:
             summary.first(Static).update(self._summary())
 
     def _sync_cfg(self) -> None:
-        def num(sel, default):
+        def num(selector, default):
             try:
-                return float(self.query_one(sel, Input).value)
+                return float(self.query_one(selector, Input).value)
             except (ValueError, Exception):
                 return default
         self.cfg = self.cfg.with_overrides(
@@ -283,7 +346,7 @@ class BotTUI(App):
             stop_loss_pct=num("#sl", 0.0),
             take_profit_pct=num("#tp", 0.0),
             chain=self.query_one("#chain", Select).value,
-            token_address=self.query_one("#token", Input).value.strip())
+            token_address=self.query_one("#token_address", Input).value.strip())
         self._refresh_summary()
 
     @property
@@ -299,18 +362,12 @@ class BotTUI(App):
 
     def _post_welcome(self) -> None:
         self._app_ready = True
-        where = "di atas" if self._narrow else "di kiri"
-        self._log(f"[{A}]selamat datang.[/] atur {where}, lalu klik "
-                  "backtest (atau tekan b).")
-        self._log(f"[{DIM}]backtest jalan offline. "
-                  "paper trading butuh koneksi.[/]")
-        if self._narrow:
-            self._hinted_narrow = True
-            self._log(f"[{DIM}]layar sempit: putar hp ke landscape untuk "
-                      "tampilan penuh, atau tekan t untuk menyembunyikan "
-                      "pengaturan.[/]")
+        self._log(f"[{A}]welcome.[/] set things up below, then click backtest "
+                  "(or press b).")
+        self._log(f"[{DIM}]backtests run offline. paper trading needs a "
+                  "connection.[/]")
 
-    # ── aksi ────────────────────────────────────────────────────
+    # ── actions ─────────────────────────────────────────────────
     @on(Select.Changed)
     @on(Input.Changed)
     def _on_change(self) -> None:
@@ -331,30 +388,23 @@ class BotTUI(App):
             return
         col = POS if rep.return_pct >= 0 else NEG
         bh = POS if rep.buy_hold_pct >= 0 else NEG
-        self._log(f"  [{DIM}]modal awal  [/] [{V}]{rep.starting_cash:.2f}[/]")
-        self._log(f"  [{DIM}]equity akhir[/] [{V}]{rep.final_equity:.2f}[/]")
-        self._log(f"  [{DIM}]transaksi   [/] {rep.n_trades}   "
-                  f"[{DIM}]fee[/] {rep.total_fees:.4f}")
+        self._log(f"  [{DIM}]start cash  [/] [{V}]{rep.starting_cash:.2f}[/]")
+        self._log(f"  [{DIM}]final equity[/] [{V}]{rep.final_equity:.2f}[/]")
+        self._log(f"  [{DIM}]trades      [/] {rep.n_trades}   "
+                  f"[{DIM}]fees[/] {rep.total_fees:.4f}")
         self._log(f"  [{DIM}]return      [/] [{col}]{rep.return_pct:+.2f}%[/]   "
                   f"[{DIM}]buy&hold[/] [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
-        self._log(f"[{DIM}]  (backtest bukan jaminan hasil live)[/]")
+        self._log(f"[{DIM}]  (a backtest is no promise of live results)[/]")
 
     @on(Button.Pressed, "#paper")
     def action_paper(self) -> None:
         self._sync_cfg()
         if self._paper_running:
-            self._log(f"[{DIM}]paper sudah berjalan.[/]")
+            self._log(f"[{DIM}]paper trading is already running.[/]")
             return
-        if not self.cfg.token_address:
-            try:
-                import ccxt  # noqa: F401
-            except ImportError:
-                self._log(f"[{NEG}]ccxt belum terpasang.[/] "
-                          "pip install -r requirements.txt")
-                return
         self._paper_running = True
-        self._log(f"[{A}]paper trading dimulai[/] "
-                  f"[{DIM}](tombol stop / tekan x)[/]")
+        self._log(f"[{A}]paper trading started[/] "
+                  f"[{DIM}](stop button / press x)[/]")
         self._paper_worker()
 
     @work(thread=True, exclusive=True)
@@ -374,7 +424,7 @@ class BotTUI(App):
                                 risk=RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct),
                                 symbol=symbol)
         except Exception as e:
-            self.call_from_thread(self._log, f"[{NEG}]gagal start:[/] {e!r}")
+            self.call_from_thread(self._log, f"[{NEG}]cannot start:[/] {e!r}")
             self._paper_running = False
             return
         while self._paper_running:
@@ -386,8 +436,8 @@ class BotTUI(App):
                         f"[{DIM}]({res.executed.reason})[/]" if res.executed else "")
                 self.call_from_thread(
                     self._log,
-                    f"[{DIM}]{_t.strftime('%H:%M:%S')}[/] harga={price:.4g} "
-                    f"sinyal={res.decision.action.lower()} "
+                    f"[{DIM}]{_t.strftime('%H:%M:%S')}[/] price={price:.4g} "
+                    f"signal={res.decision.action.lower()} "
                     f"equity=[{V}]{res.equity:.4f}[/]{mark}")
             except Exception as e:
                 self.call_from_thread(self._log, f"[{NEG}]tick error:[/] {e!r}")
@@ -400,10 +450,11 @@ class BotTUI(App):
     def action_check(self) -> None:
         self._sync_cfg()
         if not self.cfg.token_address:
-            self._log(f"[{DIM}]isi token address dulu untuk cek keamanan.[/]")
+            self._log(f"[{DIM}]fill in a token address first to run a safety "
+                      "check.[/]")
             return
         self._log("")
-        self._log(f"[{A}]cek keamanan[/] · {self.cfg.chain} · "
+        self._log(f"[{A}]safety check[/] · {self.cfg.chain} · "
                   f"{self.cfg.token_address[:8]}…")
         self._check_worker()
 
@@ -423,7 +474,7 @@ class BotTUI(App):
     def action_stop(self) -> None:
         if self._paper_running:
             self._paper_running = False
-            self._log(f"[{NEG}]paper dihentikan.[/]")
+            self._log(f"[{NEG}]paper trading stopped.[/]")
 
     def action_status(self) -> None:
         import json, os
@@ -435,7 +486,7 @@ class BotTUI(App):
             self._log(f"  [{DIM}]cash[/] {st.get('cash',0):.4f}   "
                       f"[{DIM}]position[/] {st.get('position',0):.8f}")
         else:
-            self._log(f"  [{DIM}]belum ada state.[/]")
+            self._log(f"  [{DIM}]no saved state yet.[/]")
 
 
 def run_tui(cfg: Config) -> None:

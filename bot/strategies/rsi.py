@@ -1,4 +1,4 @@
-"""Strategi RSI: beli saat oversold, jual saat overbought (all-in)."""
+"""RSI: buy when oversold, sell when overbought (all in)."""
 from __future__ import annotations
 
 from typing import Sequence
@@ -13,7 +13,7 @@ class RsiStrategy(Strategy):
     def __init__(self, period: int = 14, oversold: float = 30.0,
                  overbought: float = 70.0) -> None:
         if not 0 < oversold < overbought < 100:
-            raise ValueError("butuh 0 < oversold < overbought < 100")
+            raise ValueError("need 0 < oversold < overbought < 100")
         self.period, self.oversold, self.overbought = period, oversold, overbought
 
     @property
@@ -21,7 +21,7 @@ class RsiStrategy(Strategy):
         return self.period + 1
 
     def describe(self) -> str:
-        return f"RSI {self.period} (beli<{self.oversold:g}, jual>{self.overbought:g})"
+        return f"RSI {self.period} (buy<{self.oversold:g}, sell>{self.overbought:g})"
 
     def evaluate(self, closes: Sequence[float], ctx: Context) -> Decision:
         r = rsi(closes, self.period)

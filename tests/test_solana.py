@@ -1,4 +1,4 @@
-"""Test logika feed Solana (fungsi murni, tanpa jaringan)."""
+"""Solana feed logic: pure functions, no network."""
 import pytest
 
 from bot.config import Config
@@ -21,7 +21,7 @@ def test_pick_pair_empty():
 
 
 def test_closes_from_ohlcv_sorts_and_extracts_close():
-    # GeckoTerminal: [ts, o, h, l, c, v], urutan terbaru dulu
+    # GeckoTerminal: [ts, o, h, l, c, v], newest first
     ohlcv = [[300, 1, 1, 1, 30, 9], [100, 1, 1, 1, 10, 9], [200, 1, 1, 1, 20, 9]]
     assert closes_from_ohlcv(ohlcv) == [10.0, 20.0, 30.0]
 
@@ -29,11 +29,11 @@ def test_closes_from_ohlcv_sorts_and_extracts_close():
 def test_gt_timeframe_mapping():
     assert gt_timeframe("1m") == ("minute", 1)
     assert gt_timeframe("4h") == ("hour", 4)
-    assert gt_timeframe("ngawur") == ("minute", 1)  # default aman
+    assert gt_timeframe("nonsense") == ("minute", 1)  # safe default
 
 
 def test_feed_init_is_offline():
-    # __init__ tidak boleh menyentuh jaringan
+    # __init__ must not touch the network
     f = SolanaDataFeed("So11111111111111111111111111111111111111112", "1m")
     assert f.pair_address is None
     assert f.symbol.endswith("/USD")
@@ -42,7 +42,7 @@ def test_feed_init_is_offline():
 def test_build_feed_picks_dex_when_mint_set():
     from bot.dexfeed import DexFeed
     cfg = Config(solana_mint="So11111111111111111111111111111111111111112")
-    feed, symbol = build_feed(cfg)  # connect() gagal diam2 (tanpa net) -> tetap objek DEX
+    feed, symbol = build_feed(cfg)  # connect() fails quietly offline -> still a DEX feed
     assert isinstance(feed, DexFeed)
     assert feed.chain.id == "solana"
     assert symbol.endswith("/USD")

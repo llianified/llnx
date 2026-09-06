@@ -1,4 +1,4 @@
-"""Backtest berjalan untuk semua strategi tanpa error."""
+"""Backtests run for every strategy without blowing up."""
 import pytest
 
 from bot.backtest import run_backtest, synthetic_prices

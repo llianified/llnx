@@ -1,44 +1,45 @@
-# ── Konfigurasi Bot Trading ─────────────────────────────────────
-# Semua nilai bisa dioverride lewat menu interaktif atau flag CLI.
+# ── Trading bot configuration ───────────────────────────────────
+# Every value can be overridden from the menu, the TUI or a CLI flag.
 
-# Umum
-exchange: binance          # sumber harga (paper = data publik, tanpa API key)
-symbol: BTC/USDT           # pasangan yang ditradingkan
-timeframe: 1m              # ukuran candle: 1m, 5m, 15m, 1h, ...
-strategy: sma              # strategi aktif: sma | rsi | grid
-solana_mint: ""            # isi mint address token = mode PAPER Solana DEX (pantau token itu)
-starting_cash: 5.0         # ← GANTI sesuai modalmu (mis. 5, 20, 100)
-fee_rate: 0.001            # fee per transaksi (0.001 = 0.1%)
-min_notional: 5.0          # nilai order minimum exchange
-poll_interval_sec: 60      # jeda cek harga (detik) saat mode live
+# general
+exchange: binance          # price source (public data, no API key needed)
+symbol: BTC/USDT           # pair to trade
+timeframe: 1m              # candle size: 1m, 5m, 15m, 1h, ...
+strategy: sma              # sma | rsi | grid
+token_address: ""          # set a token address to track it on a DEX instead
+chain: solana              # solana | ethereum | bsc | base | arbitrum | polygon
+starting_cash: 5.0         # your capital (5, 20, 100, ...)
+fee_rate: 0.001            # fee per trade (0.001 = 0.1%)
+min_notional: 5.0          # smallest order the exchange accepts
+poll_interval_sec: 60      # seconds between price checks when live
 
-# Strategi SMA crossover
+# SMA crossover
 sma_fast: 9
 sma_slow: 21
 
-# Strategi RSI
+# RSI
 rsi_period: 14
-rsi_oversold: 30           # beli saat RSI di bawah ini
-rsi_overbought: 70         # jual saat RSI di atas ini
+rsi_oversold: 30           # buy when RSI drops below this
+rsi_overbought: 70         # sell when RSI rises above this
 
-# Strategi Grid / DCA
-grid_step_pct: 0.02        # beli lagi tiap harga turun 2% dari beli terakhir
-grid_take_profit_pct: 0.03 # jual semua saat naik 3% dari entry rata-rata
-grid_max_steps: 5          # modal dibagi jadi 5 bagian
+# Grid / DCA
+grid_step_pct: 0.02        # buy again every 2% below the last buy
+grid_take_profit_pct: 0.03 # sell everything 3% above the average entry
+grid_max_steps: 5          # capital split into 5 chunks
 
-# Manajemen risiko GLOBAL (berlaku untuk semua strategi; 0 = nonaktif)
-stop_loss_pct: 0.0         # mis. 0.05 = jual bila rugi 5%
-take_profit_pct: 0.0       # mis. 0.10 = jual bila untung 10%
+# global risk management (applies to every strategy; 0 = off)
+stop_loss_pct: 0.0         # 0.05 = sell at 5% loss
+take_profit_pct: 0.0       # 0.10 = sell at 10% profit
 
-# Notifikasi Telegram (lebih aman lewat env: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
+# telegram notifications (env vars are safer: TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
 telegram_token: ""
 telegram_chat_id: ""
 
-# Mode uang REAL — biarkan false kecuali kamu benar-benar paham risikonya.
-# API key WAJIB lewat env: EXCHANGE_API_KEY, EXCHANGE_API_SECRET (jangan di sini!)
-live_real: false           # true = order pakai uang asli
-live_sandbox: true         # true = testnet/sandbox (uang bohongan, alur asli)
+# real-money mode - leave this off unless you know what you are doing.
+# keys must come from the environment: EXCHANGE_API_KEY, EXCHANGE_API_SECRET
+live_real: false           # true = place real orders
+live_sandbox: true         # true = testnet/sandbox (fake money, real flow)
 
-# File output (otomatis dibuat)
+# output files (created automatically)
 state_file: state.json
 trades_file: trades.csv

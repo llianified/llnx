@@ -1,10 +1,12 @@
-# Dependency untuk mode paper trading LIVE (ambil harga real-time dari exchange).
-# Mode backtest & unit test TIDAK butuh ini — jalan pakai Python standar.
-ccxt>=4.2.0
-PyYAML>=6.0.1
+# Backtests, the text menu and the unit tests need NOTHING from this file --
+# they run on the Python standard library alone.
 
-# TUI full-screen (opsional tapi disarankan)
+# Full-screen TUI. Recommended, and the only real dependency.
+#   pip install textual
 textual>=0.60
 
-# hanya untuk REAL swap Solana via Jupiter (opsional, eksperimental)
-# solders>=0.21
+# Optional extras, install only what you need:
+#   pip install ccxt     exchanges other than Binance, and real CEX orders
+#   pip install PyYAML   stricter config.yaml parsing (a built-in reader is
+#                        used when PyYAML is missing)
+#   pip install solders  real Solana swaps through Jupiter (experimental)

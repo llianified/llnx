@@ -1,11 +1,10 @@
-"""Paper broker: simulasi eksekusi order dengan saldo virtual.
+"""Paper broker: simulated order execution against a virtual balance.
 
-Mendukung order bertahap (untuk DCA/grid) dan menghitung harga entry
-rata-rata tertimbang (untuk stop-loss / take-profit).
+Handles partial orders (for DCA/grid) and tracks the weighted average entry
+price (for stop-loss and take-profit).
 
-TIDAK ada uang sungguhan yang berpindah — ini murni simulasi.
-Interface-nya sama dengan CcxtBroker (mode uang real), jadi engine tak
-peduli pakai broker yang mana.
+No real money moves here. It exposes the same interface as CcxtBroker, so
+the engine does not care which broker it is driving.
 """
 from __future__ import annotations
 
@@ -19,8 +18,8 @@ class Trade:
     timestamp: str
     side: str          # "BUY" / "SELL"
     price: float
-    amount: float      # jumlah base yang ditransaksikan
-    fee: float         # fee dalam quote
+    amount: float      # base amount traded
+    fee: float         # fee, in the quote currency
     cash_after: float
     position_after: float
     equity_after: float
@@ -33,11 +32,11 @@ class PaperBroker:
     min_notional: float = 5.0
     cash: float = 5.0
     position: float = 0.0
-    avg_entry: float = 0.0        # harga beli rata-rata tertimbang
-    last_buy_price: float = 0.0   # harga pembelian terakhir (dipakai grid)
+    avg_entry: float = 0.0        # weighted average buy price
+    last_buy_price: float = 0.0   # price of the last buy (used by the grid)
     trades: list = field(default_factory=list)
 
-    is_live = False               # dibedakan dari CcxtBroker
+    is_live = False               # tells it apart from CcxtBroker
 
     def equity(self, price: float) -> float:
         return self.cash + self.position * price
@@ -46,12 +45,12 @@ class PaperBroker:
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     def buy(self, price: float, quote_amount: Optional[float] = None) -> Optional[Trade]:
-        """Beli senilai `quote_amount` (None = pakai seluruh cash)."""
+        """Buy `quote_amount` worth (None spends all the cash)."""
         spend = self.cash if quote_amount is None else min(quote_amount, self.cash)
         if spend <= 0:
             return None
         if spend < self.min_notional:
-            return None  # di bawah minimum order exchange -> pasti ditolak
+            return None  # under the exchange minimum, it would be rejected
         fee = spend * self.fee_rate
         amount = (spend - fee) / price
         new_pos = self.position + amount
@@ -62,7 +61,7 @@ class PaperBroker:
         return self._record("BUY", price, amount, fee)
 
     def sell(self, price: float, fraction: float = 1.0) -> Optional[Trade]:
-        """Jual `fraction` dari posisi (1.0 = jual semua)."""
+        """Sell `fraction` of the position (1.0 sells everything)."""
         if self.position <= 0:
             return None
         fraction = max(0.0, min(1.0, fraction))
@@ -88,7 +87,7 @@ class PaperBroker:
         self.trades.append(trade)
         return trade
 
-    # ── Persistensi ──────────────────────────────────────────────
+    # ── persistence ──────────────────────────────────────────────
     def to_dict(self) -> dict:
         return {
             "fee_rate": self.fee_rate, "min_notional": self.min_notional,

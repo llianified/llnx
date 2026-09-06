@@ -1,4 +1,4 @@
-"""HTTP GET JSON kecil (urllib, tanpa dependency)."""
+"""Tiny JSON helpers over urllib, so no HTTP library is needed."""
 from __future__ import annotations
 
 import json

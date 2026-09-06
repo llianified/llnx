@@ -1,4 +1,4 @@
-"""Kompatibilitas: SolanaDataFeed = DexFeed khusus Solana. Lihat dexfeed.py."""
+"""Compatibility shim: SolanaDataFeed is a Solana-only DexFeed. See dexfeed.py."""
 from __future__ import annotations
 
 from .chains import get_chain

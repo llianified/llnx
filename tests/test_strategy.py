@@ -1,4 +1,4 @@
-"""Test indikator & strategi."""
+"""Indicators and strategies."""
 import pytest
 
 from bot.config import Config
@@ -26,19 +26,19 @@ def test_sma_strategy_respects_position():
     s = SmaCrossStrategy(3, 8)
     up = [10] * 20 + [40]
     assert s.evaluate(up, ctx(40, position=0)).action == "BUY"
-    # sudah punya posisi -> tidak beli lagi
+    # already holding -> no second buy
     assert s.evaluate(up, ctx(40, position=1)).action == "HOLD"
 
 
 def test_rsi_oversold_buys():
-    closes = [100 - i for i in range(20)]  # turun terus -> RSI rendah
+    closes = [100 - i for i in range(20)]  # steady drop -> low RSI
     s = RsiStrategy(period=14, oversold=30, overbought=70)
     d = s.evaluate(closes, ctx(closes[-1], position=0))
     assert d.action == "BUY"
 
 
 def test_rsi_overbought_sells():
-    closes = [100 + i for i in range(20)]  # naik terus -> RSI tinggi
+    closes = [100 + i for i in range(20)]  # steady climb -> high RSI
     s = RsiStrategy(period=14, oversold=30, overbought=70)
     d = s.evaluate(closes, ctx(closes[-1], position=1, avg_entry=90))
     assert d.action == "SELL"
@@ -46,13 +46,13 @@ def test_rsi_overbought_sells():
 
 def test_grid_first_entry_and_dca():
     s = GridDcaStrategy(step_pct=0.02, take_profit_pct=0.03, max_steps=5)
-    # posisi 0 -> entry pertama, beli sebesar chunk (start/max_steps = 20)
+    # flat -> first entry, buys one chunk (start/max_steps = 20)
     d = s.evaluate([100], ctx(100, position=0, start=100))
     assert d.action == "BUY" and d.quote_amount == 20
-    # harga turun >2% dari last buy -> DCA
+    # >2% below the last buy -> DCA
     d2 = s.evaluate([100], ctx(97, position=0.2, cash=80, avg_entry=100, last_buy=100))
     assert d2.action == "BUY"
-    # harga naik >3% dari avg entry -> take profit
+    # >3% above the average entry -> take profit
     d3 = s.evaluate([100], ctx(104, position=0.2, cash=80, avg_entry=100, last_buy=100))
     assert d3.action == "SELL"
 

@@ -1,6 +1,6 @@
-"""Feed harga DEX multi-chain (paper) — DexScreener + GeckoTerminal, USD.
+"""Multi-chain DEX price feed in USD, via DexScreener and GeckoTerminal.
 
-Berlaku untuk semua chain di registry (Solana & EVM). Tanpa wallet/API key.
+Works for every chain in the registry (Solana and EVM). No wallet, no API key.
 """
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ _TF = {"1m": ("minute", 1), "5m": ("minute", 5), "15m": ("minute", 15),
        "1h": ("hour", 1), "4h": ("hour", 4)}
 
 
-# ── fungsi murni (bisa dites tanpa jaringan) ────────────────────
+# ── pure helpers, testable without the network ──────────────────
 def pick_pair(pairs: list, chain_slug: Optional[str] = None) -> Optional[dict]:
-    """Pilih pair dengan likuiditas USD terbesar (opsional filter chain)."""
+    """Pick the pair with the deepest USD liquidity (optionally per chain)."""
     cand = [p for p in pairs if p.get("chainId") == chain_slug] if chain_slug else list(pairs)
     cand = cand or list(pairs)
     if not cand:
@@ -29,7 +29,7 @@ def pick_pair(pairs: list, chain_slug: Optional[str] = None) -> Optional[dict]:
 
 
 def closes_from_ohlcv(ohlcv_list: list) -> List[float]:
-    """Ambil harga close dari ohlcv_list GeckoTerminal ([ts,o,h,l,c,v])."""
+    """Close prices from a GeckoTerminal ohlcv_list ([ts,o,h,l,c,v])."""
     rows = sorted((r for r in ohlcv_list if r and len(r) >= 5), key=lambda r: r[0])
     return [float(r[4]) for r in rows]
 
@@ -42,7 +42,7 @@ def gt_timeframe(tf: str):
 class DexFeed:
     def __init__(self, chain, address: str, timeframe: str) -> None:
         if not address:
-            raise ValueError("token address kosong")
+            raise ValueError("token address is empty")
         self.chain: Chain = chain if isinstance(chain, Chain) else get_chain(chain)
         self.address = address
         self.timeframe = timeframe
@@ -54,7 +54,7 @@ class DexFeed:
         data = get_json(DEXSCREENER.format(addr=self.address))
         pair = pick_pair(data.get("pairs") or [], self.chain.dexscreener)
         if not pair:
-            raise RuntimeError(f"token {self.address} tak ditemukan di {self.chain.name}")
+            raise RuntimeError(f"token {self.address} not found on {self.chain.name}")
         self.pair_address = pair.get("pairAddress")
         base = (pair.get("baseToken") or {}).get("symbol", "?")
         self.symbol = f"{base}/USD"
@@ -68,7 +68,7 @@ class DexFeed:
         data = get_json(DEXSCREENER.format(addr=self.address))
         pair = pick_pair(data.get("pairs") or [], self.chain.dexscreener)
         if not pair or not pair.get("priceUsd"):
-            raise RuntimeError("harga USD tidak tersedia")
+            raise RuntimeError("no USD price available")
         price = float(pair["priceUsd"])
         self._buf.append(price)
         return price
