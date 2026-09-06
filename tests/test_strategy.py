@@ -1,38 +1,65 @@
-"""Test strategi SMA crossover."""
-from bot.strategy import SmaCrossStrategy, sma
+"""Test indikator & strategi."""
+import pytest
+
+from bot.config import Config
+from bot.strategies import (Context, SmaCrossStrategy, RsiStrategy,
+                            GridDcaStrategy, build_strategy)
+from bot.strategies.indicators import cross_signal, rsi, sma
+
+
+def ctx(price, position=0.0, cash=100.0, avg_entry=0.0, last_buy=0.0, start=100.0):
+    return Context(price=price, cash=cash, position=position, avg_entry=avg_entry,
+                   last_buy_price=last_buy, starting_cash=start)
 
 
 def test_sma_basic():
     assert sma([1, 2, 3, 4], 2) == 3.5
-    assert sma([10, 20, 30], 3) == 20.0
 
 
-def test_golden_cross_gives_buy():
-    # pasar datar (fast==slow), lalu lonjakan tepat di candle terakhir -> BUY
-    closes = [10] * 20 + [40]
-    strat = SmaCrossStrategy(fast=3, slow=8)
-    assert strat.signal(closes) == "BUY"
+def test_cross_golden_and_death():
+    assert cross_signal([10] * 20 + [40], 3, 8) == "BUY"
+    assert cross_signal([40] * 20 + [10], 3, 8) == "SELL"
+    assert cross_signal([10] * 30, 3, 8) == "HOLD"
 
 
-def test_death_cross_gives_sell():
-    # pasar datar, lalu penurunan tajam tepat di candle terakhir -> SELL
-    closes = [40] * 20 + [10]
-    strat = SmaCrossStrategy(fast=3, slow=8)
-    assert strat.signal(closes) == "SELL"
+def test_sma_strategy_respects_position():
+    s = SmaCrossStrategy(3, 8)
+    up = [10] * 20 + [40]
+    assert s.evaluate(up, ctx(40, position=0)).action == "BUY"
+    # sudah punya posisi -> tidak beli lagi
+    assert s.evaluate(up, ctx(40, position=1)).action == "HOLD"
 
 
-def test_no_cross_gives_hold():
-    closes = [10] * 30
-    strat = SmaCrossStrategy(fast=3, slow=8)
-    assert strat.signal(closes) == "HOLD"
+def test_rsi_oversold_buys():
+    closes = [100 - i for i in range(20)]  # turun terus -> RSI rendah
+    s = RsiStrategy(period=14, oversold=30, overbought=70)
+    d = s.evaluate(closes, ctx(closes[-1], position=0))
+    assert d.action == "BUY"
 
 
-def test_warmup_returns_hold():
-    strat = SmaCrossStrategy(fast=9, slow=21)
-    assert strat.signal([1, 2, 3]) == "HOLD"
+def test_rsi_overbought_sells():
+    closes = [100 + i for i in range(20)]  # naik terus -> RSI tinggi
+    s = RsiStrategy(period=14, oversold=30, overbought=70)
+    d = s.evaluate(closes, ctx(closes[-1], position=1, avg_entry=90))
+    assert d.action == "SELL"
 
 
-def test_fast_must_be_less_than_slow():
-    import pytest
+def test_grid_first_entry_and_dca():
+    s = GridDcaStrategy(step_pct=0.02, take_profit_pct=0.03, max_steps=5)
+    # posisi 0 -> entry pertama, beli sebesar chunk (start/max_steps = 20)
+    d = s.evaluate([100], ctx(100, position=0, start=100))
+    assert d.action == "BUY" and d.quote_amount == 20
+    # harga turun >2% dari last buy -> DCA
+    d2 = s.evaluate([100], ctx(97, position=0.2, cash=80, avg_entry=100, last_buy=100))
+    assert d2.action == "BUY"
+    # harga naik >3% dari avg entry -> take profit
+    d3 = s.evaluate([100], ctx(104, position=0.2, cash=80, avg_entry=100, last_buy=100))
+    assert d3.action == "SELL"
+
+
+def test_build_strategy_from_config():
+    cfg = Config()
+    for name in ("sma", "rsi", "grid"):
+        assert build_strategy(name, cfg).name == name
     with pytest.raises(ValueError):
-        SmaCrossStrategy(fast=21, slow=9)
+        build_strategy("ngawur", cfg)

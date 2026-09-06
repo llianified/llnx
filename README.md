@@ -1,74 +1,101 @@
-# Bot Trading Paper (Simulasi) — SMA Crossover
+# Bot Trading Crypto — Paper / Real (SMA · RSI · Grid/DCA)
 
-Bot trading crypto sederhana untuk **belajar & uji strategi**. Default-nya berjalan
-di **mode paper (simulasi)**: pakai harga real-time dari exchange, tapi order-nya
-**bohongan** dengan saldo virtual. **Nol risiko, tanpa uang sungguhan, tanpa API key.**
+Bot trading crypto untuk **belajar & uji strategi**, dengan **menu interaktif**
+supaya gampang dipakai tanpa hafal perintah. Default berjalan di **mode paper
+(simulasi)**: harga real-time dari exchange, order **bohongan** pakai saldo
+virtual. **Nol risiko, tanpa uang sungguhan, tanpa API key.**
 
-> ⚠️ **Baca dulu soal modal kecil.** Modal recehan ($5–$20) itu **buat belajar, bukan
-> cari penghasilan.** Fee (~0.1% per sisi), spread, dan minimum order exchange
-> (Binance spot biasanya ~$5–10 per order) akan memakan untung yang recehan. Naik 10%
-> dari $5 cuma $0.50. Anggap ini simulator latihan, bukan mesin uang.
+> ⚠️ **Soal modal kecil.** Modal recehan ($5–$20) itu **buat latihan, bukan
+> mesin uang.** Fee (~0.1%/sisi), spread, dan minimum order exchange (~$5–10)
+> memakan untung yang memang recehan. Uji di paper dulu; jangan pakai uang yang
+> tak siap kamu relakan.
 
 ## Fitur
-- **Paper trading live** — harga real-time (via `ccxt`), order disimulasikan lokal.
-- **Backtest** — uji strategi ke data historis (CSV) atau data sintetis bawaan.
-- **Strategi SMA crossover** — beli saat SMA cepat memotong naik SMA lambat, jual saat memotong turun.
-- **Simpan state** — saldo & posisi tersimpan, bisa lanjut setelah restart (`state.json`).
-- **Riwayat transaksi** — dicatat ke `trades.csv`.
-- **Modal & parameter gampang diubah** — lewat `config.yaml` atau flag CLI.
+1. **Stop-loss & take-profit** global — jual otomatis saat rugi/untung X%.
+2. **3 strategi**: `sma` (crossover), `rsi` (oversold/overbought), `grid` (DCA).
+3. **Notifikasi Telegram** — kabar tiap transaksi (opsional).
+4. **Jembatan uang real** — order asli via `ccxt`, default **sandbox/testnet**.
+- **Menu interaktif** + **backtest** offline + **persistensi state** + **unit test**.
+
+## Mulai cepat (paling gampang)
+```bash
+python3 main.py            # buka MENU interaktif — tinggal pilih angka
+```
+Dari menu kamu bisa: ubah modal & pasar, pilih strategi + parameternya, atur
+stop-loss/take-profit, jalankan backtest, mulai paper trading, lihat riwayat.
+
+## Pakai lewat perintah (power user)
+```bash
+# Backtest (tanpa internet, tanpa install apa pun)
+python3 main.py backtest --strategy sma  --cash 20
+python3 main.py backtest --strategy rsi  --cash 20
+python3 main.py backtest --strategy grid --cash 20
+python3 main.py backtest --strategy sma  --sl 0.03 --tp 0.10   # + stop-loss/take-profit
+python3 main.py backtest --csv harga.csv                       # data sendiri
+
+# Paper trading live (harga real-time, order simulasi) — butuh ccxt
+pip install -r requirements.txt
+python3 main.py paper --strategy grid --symbol ETH/USDT --cash 10
+
+# Lihat state & riwayat transaksi
+python3 main.py status
+```
+Berhenti dengan `Ctrl+C` — state tersimpan (`state.json`), lanjut kapan saja.
+
+## Strategi singkat
+| Strategi | Kapan beli | Kapan jual | Cocok untuk |
+|---|---|---|---|
+| `sma`  | golden cross (SMA cepat > lambat) | death cross | pasar tren |
+| `rsi`  | RSI < oversold (mis. 30) | RSI > overbought (mis. 70) | pasar bolak-balik |
+| `grid` | turun tiap `step_pct`, DCA bertahap | naik `take_profit_pct` dari entry rata-rata | pasar sideways/turun |
+
+Semua parameter ada di `config.yaml` atau bisa diatur lewat menu.
+
+## Notifikasi Telegram (opsional)
+1. Buat bot via **@BotFather**, salin token. Ambil chat id dari **@userinfobot**.
+2. Set lewat environment (lebih aman daripada di file):
+```bash
+export TELEGRAM_TOKEN="123456:abc..."
+export TELEGRAM_CHAT_ID="123456789"
+```
+Kalau keduanya ada, bot kirim pesan tiap transaksi otomatis.
+
+## Mode uang REAL (lanjutan) ⚠️
+Order pakai dana asli. **Uji di paper & sandbox dulu.**
+```bash
+export EXCHANGE_API_KEY="..."         # JANGAN pernah commit key
+export EXCHANGE_API_SECRET="..."
+python3 main.py paper --real          # default: SANDBOX/testnet (uang bohongan)
+python3 main.py paper --real --mainnet  # uang SUNGGUHAN (butuh ketik konfirmasi)
+```
+Mode mainnet minta ketik `SAYA PAHAM` sebelum jalan. `CcxtBroker` sifatnya
+eksperimental — mulai dari sandbox.
 
 ## Struktur
 ```
-main.py            # entry point (CLI)
-config.yaml        # konfigurasi (modal, symbol, timeframe, periode SMA, fee, dst.)
-requirements.txt   # dependency untuk mode live
+main.py                    # entry point (menu default + subcommand)
+config.yaml                # semua pengaturan
 bot/
-  config.py        # loader konfigurasi
-  strategy.py      # strategi SMA crossover (murni, teruji)
-  broker.py        # paper broker: saldo virtual, fee, min notional
-  engine.py        # gabungan strategi + broker (tanpa IO, mudah dites)
-  datafeed.py      # ambil harga live via ccxt (mode live saja)
-  runner.py        # loop paper trading live + persistensi
-  backtest.py      # mesin backtest + generator data sintetis
-tests/             # unit test (pytest)
+  config.py                # loader konfigurasi
+  strategies/              # indikator + strategi (sma, rsi, grid) + registry
+  broker.py                # paper broker (order bertahap, entry rata-rata)
+  live_broker.py           # broker uang real via ccxt (sandbox default)
+  risk.py                  # stop-loss / take-profit
+  engine.py                # risk + strategi + broker + notifier
+  notify.py                # NullNotifier / TelegramNotifier
+  datafeed.py              # harga live via ccxt (tanpa API key untuk paper)
+  runner.py                # loop live + persistensi
+  backtest.py              # mesin backtest + data sintetis
+  menu.py                  # menu interaktif
+tests/                     # unit test (pytest) — 23 test
 ```
 
-## Cara Pakai
-
-### 1) Coba backtest dulu (tanpa internet, tanpa install apa pun)
-```bash
-python3 main.py backtest                 # data sintetis bawaan
-python3 main.py backtest --cash 20       # ganti modal
-python3 main.py backtest --fast 5 --slow 20
-python3 main.py backtest --csv harga.csv # pakai data sendiri (kolom terakhir = harga close)
-```
-
-### 2) Paper trading live (harga real-time, order simulasi)
-```bash
-pip install -r requirements.txt          # butuh ccxt (data publik, tanpa API key)
-python3 main.py paper                     # pakai config.yaml
-python3 main.py paper --cash 10 --symbol ETH/USDT --timeframe 5m
-```
-Berhenti dengan `Ctrl+C` — state tersimpan otomatis, lanjut lagi kapan saja.
-
-### 3) Ganti modal / parameter
-Edit `config.yaml` (baris `starting_cash`, `symbol`, `sma_fast`, `sma_slow`, dst.),
-atau override sesaat lewat flag CLI seperti contoh di atas.
-
-## Menjalankan test
+## Test
 ```bash
 pip install pytest
 python3 -m pytest -q
 ```
 
-## Roadmap kalau mau lanjut
-- **Ke uang real:** tambah kelas broker baru yang memanggil API order ccxt (butuh API
-  key + saldo real). Simpan key di `.env`, **jangan pernah** di-commit.
-- Strategi lain: RSI, grid/DCA, trailing stop, stop-loss / take-profit.
-- Notifikasi (Telegram) & dashboard.
-- Backtest dengan data OHLCV historis asli dari exchange.
-
 ## Peringatan
-Ini alat **edukasi**, bukan nasihat finansial. Trading crypto berisiko tinggi dan
-bisa membuat modalmu habis. Uji di mode paper dulu, dan jangan pakai uang yang tidak
-siap kamu relakan.
+Alat **edukasi**, bukan nasihat finansial. Trading crypto berisiko tinggi.
+Hasil backtest **bukan** jaminan hasil live. Uji di paper dulu.
