@@ -5,6 +5,7 @@ from dataclasses import dataclass, fields
 
 
 MODES = ("paper", "sandbox", "live")
+STRATEGIES = ("sma", "ema", "breakout", "rsi", "grid")
 
 
 def _parse_scalar(raw: str):
@@ -72,6 +73,17 @@ class Config:
     sma_fast: int = 9
     sma_slow: int = 21
 
+    # EMA strategy (crossover, entries filtered by a long trend EMA)
+    ema_fast: int = 12
+    ema_slow: int = 26
+    ema_trend: int = 100
+
+    # Breakout strategy (donchian channel + volatility stop)
+    breakout_entry: int = 20
+    breakout_exit: int = 10
+    breakout_atr_period: int = 14
+    breakout_atr_mult: float = 2.0
+
     # RSI strategy
     rsi_period: int = 14
     rsi_oversold: float = 30.0
@@ -85,6 +97,7 @@ class Config:
     # global risk management (0 = off)
     stop_loss_pct: float = 0.0
     take_profit_pct: float = 0.0
+    trailing_stop_pct: float = 0.0   # sell this far below the peak since entry
 
     # ── auto-execution ──────────────────────────────────────────
     # paper   = simulated orders against a virtual balance
@@ -123,7 +136,7 @@ class Config:
             raise ValueError("starting_cash must be > 0")
         if not 0 <= self.fee_rate < 1:
             raise ValueError("fee_rate must be within [0, 1)")
-        if self.strategy.lower() not in ("sma", "rsi", "grid"):
+        if self.strategy.lower() not in STRATEGIES:
             raise ValueError(f"unknown strategy '{self.strategy}'")
         if self.solana_mint and not self.token_address:
             self.token_address = self.solana_mint  # backwards compatibility

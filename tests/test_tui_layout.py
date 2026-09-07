@@ -129,4 +129,4 @@ def test_backtest_writes_a_report_to_the_log():
             await pilot.pause(); await pilot.pause()
             return "\n".join(app.logbox._history)
     out = run(go())
-    assert "final equity" in out and "buy&hold" in out
+    assert "buy&hold" in out and "drawdown" in out and "profit factor" in out

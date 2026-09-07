@@ -42,14 +42,13 @@ def _header(cfg: Config):
     print(f"  mode      : {cfg.mode.upper()}  ({execute})")
     print(f"  cash      : {cfg.starting_cash:g} ({cfg.symbol})")
     print(f"  timeframe : {cfg.timeframe}   strategy: {cfg.strategy}")
-    sl = f"{cfg.stop_loss_pct*100:g}%" if cfg.stop_loss_pct else "off"
-    tp = f"{cfg.take_profit_pct*100:g}%" if cfg.take_profit_pct else "off"
-    print(f"  stop-loss : {sl}   take-profit: {tp}")
+    from .risk import RiskManager
+    print(f"  risk      : {RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct, cfg.trailing_stop_pct).describe()}")
     print(f"  guards    : {build_guardrails(cfg).describe()}")
     print(LINE)
     print("  1) cash & market")
     print("  2) strategy & its parameters")
-    print("  3) stop-loss / take-profit")
+    print("  3) stop-loss / take-profit / trailing stop")
     print("  4) run a BACKTEST (offline, no internet)")
     print(f"  5) START TRADING in {cfg.mode.upper()} mode")
     print("  6) status, orders & trade history")
@@ -86,6 +85,21 @@ def _edit_strategy(cfg: Config) -> Config:
         fast = _ask_int("fast SMA", cfg.sma_fast)
         slow = _ask_int("slow SMA", cfg.sma_slow)
         cfg = cfg.with_overrides(sma_fast=fast, sma_slow=slow)
+    elif strat == "ema":
+        print("  -- EMA parameters (entries only while above the trend EMA) --")
+        cfg = cfg.with_overrides(
+            ema_fast=_ask_int("fast EMA", cfg.ema_fast),
+            ema_slow=_ask_int("slow EMA", cfg.ema_slow),
+            ema_trend=_ask_int("trend EMA (the filter)", cfg.ema_trend))
+    elif strat == "breakout":
+        print("  -- Breakout parameters --")
+        cfg = cfg.with_overrides(
+            breakout_entry=_ask_int("buy above the high of N candles",
+                                    cfg.breakout_entry),
+            breakout_exit=_ask_int("sell below the low of N candles",
+                                   cfg.breakout_exit),
+            breakout_atr_mult=_ask_float("volatility stop (x average move)",
+                                         cfg.breakout_atr_mult))
     elif strat == "rsi":
         print("  -- RSI parameters --")
         cfg = cfg.with_overrides(
@@ -103,25 +117,32 @@ def _edit_strategy(cfg: Config) -> Config:
 
 
 def _edit_risk(cfg: Config) -> Config:
-    print("\n-- global stop-loss / take-profit (0 = off) --")
+    print("\n-- global stop-loss / take-profit / trailing stop (0 = off) --")
     print("  0.05 means 5%. Applies to every strategy.")
+    print("  A trailing stop follows the price up and sells once it turns;")
+    print("  it usually beats a fixed take-profit, which caps the winners.")
     return cfg.with_overrides(
         stop_loss_pct=_ask_float("stop-loss", cfg.stop_loss_pct),
-        take_profit_pct=_ask_float("take-profit", cfg.take_profit_pct))
+        take_profit_pct=_ask_float("take-profit", cfg.take_profit_pct),
+        trailing_stop_pct=_ask_float("trailing stop", cfg.trailing_stop_pct))
 
 
 def _run_backtest(cfg: Config):
     print("\n-- backtest (synthetic data) --")
-    closes = synthetic_prices(n=500)
-    rep = run_backtest(closes, cfg)
+    rep = run_backtest(synthetic_prices(n=1000), cfg)
+    pf = "inf" if rep.profit_factor == float("inf") else f"{rep.profit_factor:.2f}"
     print(LINE)
     print(f"  strategy     : {rep.strategy}")
-    print(f"  start cash   : {rep.starting_cash:.2f}")
-    print(f"  final equity : {rep.final_equity:.2f}")
-    print(f"  trades       : {rep.n_trades}   total fees: {rep.total_fees:.4f}")
+    print(f"  equity       : {rep.starting_cash:.2f} -> {rep.final_equity:.2f}")
     print(f"  return       : {rep.return_pct:+.2f}%   buy&hold: {rep.buy_hold_pct:+.2f}%")
+    print(f"  max drawdown : {rep.max_drawdown_pct:.2f}%   exposure: {rep.exposure_pct:.0f}%")
+    print(f"  round trips  : {rep.n_round_trips}   win rate: {rep.win_rate_pct:.0f}%"
+          f"   profit factor: {pf}")
+    print(f"  fees         : {rep.fees_pct:.2f}% of capital ({rep.n_trades} orders)")
     print(LINE)
-    print("  (a backtest is no promise of live results)")
+    print("  Synthetic data. For a number worth trusting:")
+    print("    llnx fetch --symbol BTC/USDT --timeframe 1h --n 3000 -o btc.csv")
+    print("    llnx optimize --csv btc.csv --sweep-trail")
     input("  press Enter to go back...")
 
 
