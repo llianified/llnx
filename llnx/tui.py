@@ -59,6 +59,18 @@ STRATEGY_LABELS = {
 }
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
 
+# The settings are one screen per subject, not one long pile. A phone has no
+# room for thirty fields, and a bar you have to scroll is a bar you misread.
+SECTIONS = ("market", "trading", "strategy", "exits", "limits")
+SECTION_TABS = {"market": "market", "trading": "trading", "strategy": "strategy",
+                "exits": "exits", "limits": "limits"}
+SECTION_NOTES = {
+    "market": "one market at a time",
+    "trading": "",
+    "exits": "0 = off",
+    "limits": "0 = off",
+}
+
 # Two markets, and only one is ever live. It is a choice you make here, not
 # something inferred from whether another field happens to be filled in.
 MARKET_LABELS = {"exchange": "exchange · a pair", "dex": "dex · a token address"}
@@ -138,6 +150,13 @@ FIELD_LABELS = {
     "grid_max_steps": "steps",
 }
 # percentages are entered as percentages here, not as 0.05
+SECTION_HINTS = {
+    "market": "what you trade: a pair on an exchange, or one token on a chain.",
+    "trading": "the money, the mode and the strategy it runs.",
+    "strategy": "the numbers behind the strategy you picked in `trading`.",
+    "exits": "how a position ends. these apply to every strategy.",
+    "limits": "the brakes. they stop the bot buying, never selling.",
+}
 PERCENT_FIELDS = ("sl", "tp", "trail", "max_order", "daily_loss",
                   "grid_step_pct", "grid_take_profit_pct")
 INTEGER_FIELDS = ("sma_fast", "sma_slow", "ema_fast", "ema_slow", "ema_trend",
@@ -310,16 +329,25 @@ class LlnxTUI(App):
            height: 1fr; }
 
     /* ── settings bar at the bottom ─────────────────────────────── */
-    #panel { padding: 1 2 0 2; background: #1a1b21; border-top: solid #272932; }
+    #panel { height: auto; padding: 1 2 0 2; background: #1a1b21;
+             border-top: solid #272932; }
     #panel.hidden { display: none; }
-    #fields { height: 1fr; }
-    .section { height: auto; margin-bottom: 1; }
+    #tabs { height: 1; layout: grid; grid-size: 5; grid-rows: 1;
+            grid-gutter: 0 1; margin-bottom: 1; }
+    .tab { height: 1; border: none; width: 1fr; min-width: 0;
+           background: #1a1b21; color: #6a6f7a; text-style: none; }
+    .tab:hover { background: #23252c; color: #b9bec8; }
+    .tab.-on { background: #23252c; color: #d3d7df; }
+    #fields { height: auto; max-height: 100%; padding-bottom: 1; }
+    .section { height: auto; }
+    .section.hidden { display: none; }
     .row { height: auto; layout: grid; grid-size: 2; grid-rows: auto;
            grid-gutter: 0 3; }
     .field { height: auto; }
     .field.hidden { display: none; }
     .caption { height: 1; color: #565a62; padding: 0 1; }
-    #hint { height: auto; min-height: 1; color: #7a8089; padding: 0 1; }
+    #hint { height: auto; min-height: 1; color: #7a8089; padding: 0 1;
+            border-top: solid #23252c; }
     Label { color: #6a6f7a; padding: 0 1; height: 1; }
     .field.-off Label { color: #4b4e56; }
     .field.-off Input { color: #565a62; }
@@ -344,6 +372,8 @@ class LlnxTUI(App):
 
     /* ── wide terminal: four columns of fields, one row of buttons ─ */
     Screen.-wide .row { grid-size: 4; }
+    Screen.-narrow #tabs { height: auto; grid-size: 3; grid-rows: 1;
+                           grid-gutter: 1 1; }
     Screen.-wide #actions { grid-size: 5; }
 
     /* ── short terminal: tighter spacing ─────────────────────────── */
@@ -351,8 +381,11 @@ class LlnxTUI(App):
     Screen.-compact #actions { padding: 1 0 0 0; }
     Screen.-narrow FooterKey.-command-palette { display: none; }
 
-    Screen.-compact .section { margin-bottom: 0; }
-    Screen.-tight .section { margin-bottom: 0; }
+    /* a short screen pays for every row: lose the gutters and the hint */
+    Screen.-compact #tabs { margin-bottom: 0; grid-gutter: 0 1; }
+    Screen.-compact #hint { display: none; }
+    Screen.-compact #fields { padding-bottom: 0; }
+    Screen.-compact #actions { grid-gutter: 0 2; padding: 0; }
 
     /* ── very short terminal: drop the padding ───────────────────── */
     Screen.-short #status { padding: 0 1; }
@@ -375,6 +408,7 @@ class LlnxTUI(App):
         super().__init__()
         self.cfg = cfg
         self._market = "dex" if cfg.token_address else "exchange"
+        self._section = "market"          # which settings screen is showing
         self._saved_token = cfg.token_address   # kept while the pair is selected
         self._trading = False
         self._app_ready = False
@@ -396,9 +430,13 @@ class LlnxTUI(App):
             yield Static(self._status(), id="status")
             yield WrapLog(id="log", markup=True, highlight=False, wrap=True)
         with Vertical(id="panel"):
+            with Vertical(id="tabs"):
+                for name in SECTIONS:
+                    yield Button(SECTION_TABS[name], id=f"tab_{name}",
+                                 classes="tab")
             with VerticalScroll(id="fields"):
-                with Vertical(classes="section"):
-                    yield Static("what to trade", classes="caption")
+                with Vertical(id="section_market", classes="section"):
+                    yield Static(SECTION_NOTES["market"], classes="caption")
                     with Vertical(classes="row"):
                         with Vertical(id="market_field", classes="field"):
                             yield Label("market")
@@ -423,8 +461,7 @@ class LlnxTUI(App):
                         yield Input(self.cfg.token_address, id="token_address",
                                     placeholder="paste the mint / contract address")
 
-                with Vertical(classes="section"):
-                    yield Static("how it runs", classes="caption")
+                with Vertical(id="section_trading", classes="section"):
                     with Vertical(classes="row"):
                         with Vertical(classes="field"):
                             yield Label("mode")
@@ -446,7 +483,7 @@ class LlnxTUI(App):
                             yield Input(str(self.cfg.poll_interval_sec), id="poll",
                                         type="integer")
 
-                with Vertical(classes="section"):
+                with Vertical(id="section_strategy", classes="section"):
                     yield Static(STRATEGY_CAPTIONS[self.cfg.strategy],
                                  id="strategy_caption", classes="caption")
                     with Vertical(classes="row"):
@@ -457,8 +494,8 @@ class LlnxTUI(App):
                                             type=("integer" if name in INTEGER_FIELDS
                                                   else "number"))
 
-                with Vertical(classes="section"):
-                    yield Static("when to sell   ·   0 = off", classes="caption")
+                with Vertical(id="section_exits", classes="section"):
+                    yield Static(SECTION_NOTES["exits"], classes="caption")
                     with Vertical(classes="row"):
                         with Vertical(classes="field"):
                             yield Label("stop-loss (%)")
@@ -473,9 +510,8 @@ class LlnxTUI(App):
                             yield Input(pct_in(self.cfg.trailing_stop_pct), id="trail",
                                         type="number")
 
-                with Vertical(classes="section"):
-                    yield Static("when it stops itself   ·   0 = off",
-                                 classes="caption")
+                with Vertical(id="section_limits", classes="section"):
+                    yield Static(SECTION_NOTES["limits"], classes="caption")
                     with Vertical(classes="row"):
                         with Vertical(classes="field"):
                             yield Label("max order (%)")
@@ -520,42 +556,26 @@ class LlnxTUI(App):
             self._refresh_status()
         self._resize_panel(height)
 
-    def _wanted_rows(self, columns: int, margins: bool) -> int:
-        rows = 0
-        for size in self._group_sizes():             # caption + fields + margin
-            rows += 1 + -(-size // columns) * 2 + (1 if margins else 0)
-        if self._market == "dex":
-            rows += 2                                # the token address row
-        buttons = 1 if self._wide else 5             # one row, or three + gutters
-        chrome = 3 if self._compact else 4           # border, padding, spare
-        return rows + 1 + buttons + chrome           # +1 = the hint line
+    def _log_floor(self, height: int) -> int:
+        """Rows the output keeps whatever the settings want. On a short screen
+        it hands some of them back rather than leaving nothing readable."""
+        return min(MIN_LOG_ROWS, max(4, height // 3))
 
-    def _panel_rows(self, height: int) -> int:
-        """How tall the settings bar may be, in rows.
+    def _fit_panel(self, height: int) -> None:
+        """The bar takes what this settings screen needs, and no more.
 
-        It asks for what its fields need and never takes more than half the
-        screen; if capped, the fields scroll and the buttons stay put.
+        Textual measures that -- the tab row wraps on a phone and the hint
+        wraps with it, and arithmetic that tries to predict all of it ends up
+        clipping the fields, which is the one thing it must not do. All we set
+        is the ceiling, so the output always keeps its share of the screen.
         """
-        columns = 4 if self._wide else 2
-        room = max(MIN_PANEL_ROWS, height - MIN_LOG_ROWS - CHROME_ROWS)
-        wanted = self._wanted_rows(columns, margins=not self._compact)
-        # rather than scroll, first drop the air between the sections
-        tight = wanted > room
-        if tight:
-            wanted = self._wanted_rows(columns, margins=False)
-        self.screen.set_class(tight, "-tight")
-        return max(MIN_PANEL_ROWS, min(wanted, room))
-
-    def _group_sizes(self) -> tuple:
-        """How many fields each section is showing right now."""
-        trading = 4 if self.query("#cash_field") and not self.query(
-            "#cash_field").first().has_class("hidden") else 3
-        return (3, trading, len(STRATEGY_FIELDS[self.cfg.strategy]), 3, 4)
-
-    def _resize_panel(self, height: int) -> None:
         panel = self.query("#panel")
         if panel:
-            panel.first().styles.height = self._panel_rows(height)
+            panel.first().styles.max_height = max(
+                MIN_PANEL_ROWS, height - self._log_floor(height) - CHROME_ROWS)
+
+    def _resize_panel(self, height: int) -> None:
+        self._fit_panel(height)
         self._auto_hide_panel(height)
 
     def _relabel(self) -> None:
@@ -563,9 +583,30 @@ class LlnxTUI(App):
         self._apply_market()
         self._apply_strategy()
         self._apply_mode()
+        self._apply_section()
+        self._apply_section()
         self._relabel_select("#strategy", STRATEGY_LABELS)
         self._relabel_select("#mode", MODE_LABELS)
         self._relabel_select("#market", MARKET_LABELS)
+
+    def _apply_section(self) -> None:
+        """Only the settings screen you tapped is on show."""
+        for name in SECTIONS:
+            block = self.query(f"#section_{name}")
+            if block:
+                block.first().set_class(name != self._section, "hidden")
+            tab = self.query(f"#tab_{name}")
+            if tab:
+                tab.first(Button).set_class(name == self._section, "-on")
+
+    @on(Button.Pressed, ".tab")
+    def _tab_pressed(self, event: Button.Pressed) -> None:
+        self._section = (event.button.id or "tab_market")[len("tab_"):]
+        self._apply_section()
+        self._resize_panel(self.size.height)
+        note = SECTION_HINTS.get(self._section, "")
+        if note:
+            self.query_one("#hint", Static).update(note)
 
     def _strategy_value(self, name: str) -> str:
         value = getattr(self.cfg, name)
@@ -655,7 +696,9 @@ class LlnxTUI(App):
     def _market_text(self) -> str:
         """The market as the status band shows it: a pair, or a token on a chain."""
         c = self.cfg
-        if c.token_address:
+        if self._market == "dex":
+            if not c.token_address:
+                return f"[{MAUVE}]{c.chain}[/] [{DIM}]· no token yet[/]"
             a = c.token_address
             short = f"{a[:4]}…{a[-4:]}" if len(a) > 10 else a
             return f"[{MAUVE}]{c.chain} {short}[/]"
@@ -752,6 +795,7 @@ class LlnxTUI(App):
         self._apply_market()
         self._apply_strategy()
         self._apply_mode()
+        self._apply_section()
 
     def _mark_live(self) -> None:
         """The run button wears the mode, so live never looks like paper."""
