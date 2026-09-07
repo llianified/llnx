@@ -154,7 +154,7 @@ def plain(row):
 
 def test_a_quiet_poll_is_one_dim_row():
     row = plain(rows_at(120, 30, [tick()])[0])
-    assert row.split()[1:] == ["68120.5", "·"]
+    assert row.split()[1:] == ["68120.50", "·"]
 
 
 def test_a_fill_shows_side_amount_price_and_reason():
@@ -221,3 +221,83 @@ def test_clear_does_not_stop_a_run():
 
     app, fake = drive(steps)
     assert fake.calls == [{"mode": "paper", "confirmed": False}]
+
+
+# ── which market is live ─────────────────────────────────────────
+MARKET_FIELDS = (("#pair_field", "#pair_label"), ("#chain_field", "#chain_label"),
+                 ("#token", "#token_label"))
+
+
+def market_state(width=120, token=""):
+    """(dimmed?, label) for the pair, chain and token fields."""
+    async def go():
+        app = tui.LlnxTUI(Config())
+        async with app.run_test(size=(width, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            if token:
+                app.query_one("#token_address").value = token
+                for _ in range(3):
+                    await pilot.pause()
+            return [(app.query_one(f).has_class("-off"), str(app.query_one(l).content))
+                    for f, l in MARKET_FIELDS]
+    return asyncio.run(go())
+
+
+def test_an_empty_token_address_means_the_exchange_pair_is_live():
+    pair, chain, token = market_state()
+    assert pair[0] is False                       # the pair is what trades
+    assert chain[0] is True                        # the chain is idle...
+    assert "only for a token address" in chain[1]   # ...and says why
+    assert token[0] is True
+
+
+def test_filling_in_a_token_address_hands_the_market_to_the_chain():
+    pair, chain, token = market_state(token="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
+    assert pair[0] is True and "unused" in pair[1]
+    assert chain[0] is False and token[0] is False
+    assert "dex" in token[1]
+
+
+def test_the_status_band_names_the_market_that_is_live():
+    async def go():
+        app = tui.LlnxTUI(Config(symbol="ETH/USDT", chain="base"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            exchange = plain(app._status())
+            app.query_one("#token_address").value = "0xabc123def456"
+            for _ in range(3):
+                await pilot.pause()
+            return exchange, plain(app._status())
+    exchange, dex = asyncio.run(go())
+    assert "eth/usdt" in exchange and "base" not in exchange
+    assert "base" in dex and "eth/usdt" not in dex
+
+
+def test_the_idle_labels_shorten_on_a_phone():
+    _, chain, _ = market_state(width=60)
+    assert chain[1] == "chain · dex only"
+
+
+# ── number formatting ────────────────────────────────────────────
+def test_prices_stay_readable_at_both_ends_of_the_market():
+    from llnx.tui import format_price
+    assert format_price(68120.5) == "68120.50"
+    assert format_price(1.2345) == "1.2345"
+    assert format_price(0.0000182) == "0.0000182"     # never 1.82e-05
+    assert "e" not in format_price(1.23e-09)
+    assert format_price(0.0) == "0"
+
+
+def test_amounts_shrink_to_something_a_person_can_read():
+    from llnx.tui import format_amount
+    assert format_amount(0.00036) == "0.00036"
+    assert format_amount(1234.5) == "1,234"
+    assert format_amount(1_020_408.0) == "1.02M"
+
+
+def test_a_meme_token_price_reaches_the_log_intact():
+    rows = rows_at(120, 30, [tick(price=0.0000182, executed=fill(
+        amount=1_020_408.0, price=0.0000196, reason="20-candle breakout"))])
+    row = plain(rows[0])
+    assert "0.0000182" in row and "1.02M" in row and "0.0000196" in row
+    assert "e-05" not in row

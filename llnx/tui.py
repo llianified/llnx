@@ -17,6 +17,8 @@ Needs: pip install textual   |   run: llnx
 """
 from __future__ import annotations
 
+import math
+
 from rich.markup import escape
 from textual import events, on, work
 from textual.app import App, ComposeResult
@@ -56,8 +58,19 @@ STRATEGY_LABELS = {
     "grid": "grid · dca",
 }
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
-TOKEN_LABEL = "token address (optional → dex mode)"
-TOKEN_LABEL_SHORT = "token address (optional)"
+# Two markets share this bar and only one is ever live: an exchange pair, or a
+# token address on a chain. Whichever is idle is dimmed and says so, because a
+# lit-up "chain: solana" next to "pair: btc/usdt" reads like both are running.
+PAIR_LABELS = {(True, True): "pair · unused in dex mode",
+               (True, False): "pair · unused",
+               (False, True): "pair", (False, False): "pair"}
+CHAIN_LABELS = {(True, True): "chain", (True, False): "chain",
+                (False, True): "chain · only for a token address",
+                (False, False): "chain · dex only"}
+TOKEN_LABELS = {(True, True): "token address · dex mode is on",
+                (True, False): "token address · dex on",
+                (False, True): "token address (fill this in for dex mode)",
+                (False, False): "token address (optional)"}
 
 # from this width up the settings bar uses four columns instead of two
 WIDE_COLS = 96
@@ -79,6 +92,34 @@ LOG_HISTORY = 500
 PRICE_WIDTH = 11
 # below this many characters a reason is dropped rather than clipped to noise
 MIN_REASON = 8
+
+
+def format_price(price: float) -> str:
+    """Prices readable at both ends of the market.
+
+    A meme token trades at 0.0000182 and BTC at 68120.5; plain %g turns the
+    first into 1.82e-05, which is unreadable in a scrolling log.
+    """
+    if price >= 1000:
+        return f"{price:.2f}"
+    if price >= 1:
+        return f"{price:.4f}"
+    if price >= 0.001:
+        return f"{price:.6f}"
+    if price <= 0:
+        return "0"
+    # keep three significant digits however small the token is
+    decimals = min(12, -int(math.floor(math.log10(price))) + 2)
+    return f"{price:.{decimals}f}"
+
+
+def format_amount(amount: float) -> str:
+    """Position sizes, from 0.00036 BTC to a million meme tokens."""
+    if amount >= 1_000_000:
+        return f"{amount / 1e6:.3g}M"
+    if amount >= 1000:
+        return f"{amount:,.0f}"
+    return f"{amount:.6g}"
 
 
 def clip(text: str, room: int) -> str:
@@ -188,6 +229,9 @@ class LlnxTUI(App):
               grid-gutter: 0 3; }
     .field { height: auto; }
     Label { color: #6a6f7a; padding: 0 1; height: 1; }
+    .field.-off Label { color: #4b4e56; }
+    .field.-off Input { color: #565a62; }
+    .field.-off Select > SelectCurrent { color: #565a62; }
     Input { height: 1; border: none; padding: 0 1;
             background: #101115; color: #b9bec8; }
     Input:focus { background: #23252c; color: #d3d7df; }
@@ -263,8 +307,8 @@ class LlnxTUI(App):
                 with Vertical(classes="field"):
                     yield Label("cash ($)")
                     yield Input(str(self.cfg.starting_cash), id="cash", type="number")
-                with Vertical(classes="field"):
-                    yield Label("pair")
+                with Vertical(id="pair_field", classes="field"):
+                    yield Label("pair", id="pair_label")
                     yield Input(self.cfg.symbol.lower(), id="symbol")
                 with Vertical(classes="field"):
                     yield Label("timeframe")
@@ -275,10 +319,6 @@ class LlnxTUI(App):
                     yield Select([(STRATEGY_LABELS[n], n) for n in STRATEGY_LABELS],
                                  value=self.cfg.strategy, id="strategy",
                                  allow_blank=False)
-                with Vertical(classes="field"):
-                    yield Label("chain")
-                    yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
-                                 value=self.cfg.chain, id="chain", allow_blank=False)
                 with Vertical(classes="field"):
                     yield Label("stop-loss")
                     yield Input(str(self.cfg.stop_loss_pct), id="sl", type="number")
@@ -293,8 +333,12 @@ class LlnxTUI(App):
                     yield Label("poll (seconds)")
                     yield Input(str(self.cfg.poll_interval_sec), id="poll",
                                 type="integer")
+                with Vertical(id="chain_field", classes="field"):
+                    yield Label("chain", id="chain_label")
+                    yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
+                                 value=self.cfg.chain, id="chain", allow_blank=False)
             with Vertical(id="token", classes="field"):
-                yield Label(TOKEN_LABEL, id="token_label")
+                yield Label(TOKEN_LABELS[(False, True)], id="token_label")
                 yield Input(self.cfg.token_address, id="token_address")
             with Vertical(id="actions"):
                 yield Button("run", id="run")
@@ -343,11 +387,30 @@ class LlnxTUI(App):
 
     def _relabel(self) -> None:
         """Shorten the wordy labels when the terminal is narrow."""
-        label = self.query("#token_label")
-        if label:
-            label.first(Label).update(TOKEN_LABEL if self._wide else TOKEN_LABEL_SHORT)
+        self._mark_market()
         self._relabel_select("#strategy", STRATEGY_LABELS)
         self._relabel_select("#mode", MODE_LABELS)
+
+    def _mark_market(self) -> None:
+        """Light up the market in use and dim the other one.
+
+        A token address means the bot trades that token on `chain`; an empty
+        one means it trades `pair` on the exchange. Nothing else switches it,
+        so the bar has to show which half is live.
+        """
+        dex = bool(self.cfg.token_address)
+        key = (dex, bool(self._wide))
+        fields = (("#pair_field", "#pair_label", PAIR_LABELS, dex),
+                  ("#chain_field", "#chain_label", CHAIN_LABELS, not dex),
+                  ("#token", "#token_label", TOKEN_LABELS, not dex))
+        for field_id, label_id, labels, idle in fields:
+            field = self.query(field_id)
+            if not field:
+                continue
+            field.first().set_class(idle, "-off")
+            label = self.query(label_id)
+            if label:
+                label.first(Label).update(labels[key])
 
     def _relabel_select(self, selector: str, labels: dict) -> None:
         node = self.query(selector)
@@ -418,8 +481,8 @@ class LlnxTUI(App):
     def _status(self) -> str:
         c = self.cfg
         d = f" [{DIM}]·[/] "
-        held = (f"[{DIM}]pos[/] [{V}]{self._position:.6g}[/]" if self._position
-                else f"[{DIM}]flat[/]")
+        held = (f"[{DIM}]pos[/] [{V}]{format_amount(self._position)}[/]"
+                if self._position else f"[{DIM}]flat[/]")
         if self._short:                      # one line, everything essential
             return (f"{self._mode_tag()}{d}{self._market()}{d}[{A}]{c.strategy}[/]"
                     f"{d}[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
@@ -466,6 +529,7 @@ class LlnxTUI(App):
             self._equity = self._cash = self.cfg.starting_cash
         self._refresh_status()
         self._mark_live()
+        self._mark_market()
 
     def _mark_live(self) -> None:
         """The run button wears the mode, so live never looks like paper."""
@@ -597,7 +661,8 @@ class LlnxTUI(App):
         # a poll where nothing happened stays quiet, so the trades stand out
         quiet = data["executed"] is None and not data["blocked"]
         price = MUTED if quiet else V
-        self._log(f"[{DIM}]{stamp}[/]  [{price}]{data['price']:>{PRICE_WIDTH}.8g}[/]  "
+        self._log(f"[{DIM}]{stamp}[/]  "
+                  f"[{price}]{format_price(data['price']):>{PRICE_WIDTH}}[/]  "
                   + self._event(data, room))
 
     def _log_width(self) -> int:
@@ -614,10 +679,11 @@ class LlnxTUI(App):
             return f"[{WARN}]held[/] [{DIM}]{escape(clip(data['blocked'], room - 5))}[/]"
 
         colour = POS if trade.side == "BUY" else NEG
-        head = f"{trade.side.lower():<4} {trade.amount:.6g}"
-        row = f"[{colour}]{trade.side.lower():<4}[/] [{V}]{trade.amount:.6g}[/]"
+        amount = format_amount(trade.amount)
+        head = f"{trade.side.lower():<4} {amount}"
+        row = f"[{colour}]{trade.side.lower():<4}[/] [{V}]{amount}[/]"
         if not self._narrow:      # a phone has no room for the fill price
-            fill = f"{trade.price:.8g}"
+            fill = format_price(trade.price)
             head += f" @ {fill}"
             row += f" [{DIM}]@[/] [{V}]{fill}[/]"
         # a couple of clipped letters say nothing: show the reason or drop it
@@ -673,8 +739,10 @@ class LlnxTUI(App):
             with open(self.cfg.state_file) as fh:
                 st = json.load(fh)
             self._log(f"  [{DIM}]cash[/] [{V}]{st.get('cash', 0):.4f}[/]   "
-                      f"[{DIM}]position[/] [{V}]{st.get('position', 0):.8g}[/]   "
-                      f"[{DIM}]entry[/] [{V}]{st.get('avg_entry', 0):.6g}[/]")
+                      f"[{DIM}]position[/] "
+                      f"[{V}]{format_amount(st.get('position', 0))}[/]   "
+                      f"[{DIM}]entry[/] "
+                      f"[{V}]{format_price(st.get('avg_entry', 0))}[/]")
             session = st.get("session") or {}
             if session.get("halt_reason"):
                 self._log(f"  [{NEG}]halted[/] {escape(session['halt_reason'])}")
@@ -687,8 +755,8 @@ class LlnxTUI(App):
             note = escape(r.get("signal") or r.get("reason") or r.get("error") or "")
             self._log(f"  [{colour}]{r.get('status', '?'):<8}[/] "
                       f"[{DIM}]{r.get('side', '?').lower():<4}[/] "
-                      f"[{V}]{r.get('amount', 0):.6g}[/] [{DIM}]@[/] "
-                      f"[{V}]{r.get('price', 0):.8g}[/] [{DIM}]{note}[/]")
+                      f"[{V}]{format_amount(r.get('amount', 0))}[/] [{DIM}]@[/] "
+                      f"[{V}]{format_price(r.get('price', 0))}[/] [{DIM}]{note}[/]")
         self._log("")
 
 

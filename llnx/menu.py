@@ -5,6 +5,7 @@ import json
 import os
 
 from .backtest import run_backtest, synthetic_prices
+from .chains import CHAINS
 from .config import MODES, Config
 from .execution import read_journal
 from .guards import build_guardrails
@@ -40,7 +41,9 @@ def _header(cfg: Config):
     print(LINE)
     execute = "auto-execute ON" if cfg.auto_execute else "signals only"
     print(f"  mode      : {cfg.mode.upper()}  ({execute})")
-    print(f"  cash      : {cfg.starting_cash:g} ({cfg.symbol})")
+    market = (f"{cfg.token_address[:8]}… on {cfg.chain}" if cfg.token_address
+              else f"{cfg.symbol} on {cfg.exchange}")
+    print(f"  cash      : {cfg.starting_cash:g}   market: {market}")
     print(f"  timeframe : {cfg.timeframe}   strategy: {cfg.strategy}")
     from .risk import RiskManager
     print(f"  risk      : {RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct, cfg.trailing_stop_pct).describe()}")
@@ -58,13 +61,28 @@ def _header(cfg: Config):
 
 
 def _edit_market(cfg: Config) -> Config:
+    """One market at a time: an exchange pair, or a token address on a chain."""
     print("\n-- cash & market --")
-    return cfg.with_overrides(
+    print("  Two ways to trade, and only one runs at a time:")
+    print("    exchange : a pair like BTC/USDT")
+    print("    dex      : a token address on a chain (leave it empty for the pair)")
+    cfg = cfg.with_overrides(
         starting_cash=_ask_float("starting cash", cfg.starting_cash),
-        symbol=_ask("pair (e.g. BTC/USDT)", cfg.symbol).upper(),
         timeframe=_ask("timeframe (1m/5m/15m/1h)", cfg.timeframe),
-        exchange=_ask("exchange", cfg.exchange),
-    )
+        token_address=_ask("token address (empty = trade a pair)",
+                           cfg.token_address).strip())
+    if cfg.token_address:
+        cfg = cfg.with_overrides(
+            chain=_ask(f"chain ({'/'.join(CHAINS)})", cfg.chain).lower())
+        print(f"  → dex mode: {cfg.token_address[:8]}… on {cfg.chain}. "
+              "The pair and the exchange are not used.")
+    else:
+        cfg = cfg.with_overrides(
+            symbol=_ask("pair (e.g. BTC/USDT)", cfg.symbol).upper(),
+            exchange=_ask("exchange", cfg.exchange))
+        print(f"  → exchange mode: {cfg.symbol} on {cfg.exchange}. "
+              "The chain is not used.")
+    return cfg
 
 
 def _edit_strategy(cfg: Config) -> Config:
