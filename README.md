@@ -223,8 +223,8 @@ Termux portrait (45x55):
 Log rows are clipped, never wrapped, so a phone screen stays readable.
 Rotating the phone re-wraps the older lines instead of leaving them cut off.
 
-Keys: `b` backtest · `r` run · `c` safety check · `s` status · `x` stop ·
-`l` clear the log · `t` settings · `q` quit.
+Keys: `b` backtest · `r` run · `c` safety check · `s` status · `g` setup
+checklist · `x` stop · `l` clear the log · `t` settings · `q` quit.
 
 ## Command line
 
@@ -250,6 +250,33 @@ Guardrails have flags too: `--max-daily-loss`, `--max-trades`, `--cooldown`,
 next time, daily counters included.
 
 ## Going live, step by step
+
+Or let llnx tell you where you are:
+
+```bash
+python3 main.py setup        # or press g in the TUI
+```
+
+```
+going live on solana - what is left to do
+   1 [TODO] the solders package
+          pip install solders
+   2 [TODO] SOLANA_PRIVATE_KEY in the environment
+          export SOLANA_PRIVATE_KEY="..."   base58, and a burner wallet
+   4 [next] wallet balance
+          checked once the key and the RPC are set
+   7 [TODO] paper trading first
+          run it on paper until you have seen it buy and sell
+   9 [TODO] the brakes are off
+          no max order, no cooldown. set them in `limits` and `exits`
+```
+
+It checks the machine rather than reciting a manual: whether the package is
+importable, whether the keys are in the environment, what the wallet actually
+holds, how many orders you have filled on paper and in sandbox (counted from
+`orders.jsonl`), and which brakes are still off. It never prints a key.
+
+The same path, written out:
 
 1. **Paper, for a day.** `python3 main.py run --mode paper`. Check
    `python3 main.py status --orders 20` afterwards: the journal is where you

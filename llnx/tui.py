@@ -811,6 +811,19 @@ class LlnxTUI(App):
     def _log(self, line: str = "") -> None:
         self.logbox.log_line(line)
 
+    def _log_detail(self, text: str, indent: int = 5, colour: str = DIM) -> None:
+        """A detail under a heading, wrapped so it keeps its indent.
+
+        The log wraps long lines back to column zero, which breaks the one
+        thing this log has going for it: a line is either a heading or sits
+        under one.
+        """
+        import textwrap
+        width = max(20, self._log_width() - indent)
+        pad = " " * indent
+        for line in textwrap.wrap(text, width) or [""]:
+            self._log(f"{pad}[{colour}]{escape(line)}[/]")
+
     def on_mount(self) -> None:
         self._apply_layout(self.size.width, self.size.height)
         self._mark_live()
@@ -819,7 +832,8 @@ class LlnxTUI(App):
     def _post_welcome(self) -> None:
         self._app_ready = True
         self._log(f"[{A}]llnx[/] [{DIM}]· set up below, then run (r).[/]")
-        self._log(f"[{DIM}]paper is simulated. live is not.[/]")
+        self._log(f"[{DIM}]paper is simulated. live is not — press g for what "
+                  "live still needs.[/]")
         self._log("")
 
     # ── actions ─────────────────────────────────────────────────
@@ -1005,7 +1019,7 @@ class LlnxTUI(App):
                               f"[{DIM}]({rep.source or '-'})[/]")
         for lvl, msg in rep.flags[:8]:
             lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
-            self.call_from_thread(self._log, f"  [{lc}]·[/] {escape(msg)}")
+            self.call_from_thread(self._log_detail, f"· {msg}", 2, lc)
 
     def action_guide(self) -> None:
         """What is still between this config and a real order."""
@@ -1020,7 +1034,7 @@ class LlnxTUI(App):
             self._log(f"  [{DIM}]{number}[/] [{colour}]{mark:<4}[/] "
                       f"{escape(step.title)}")
             if step.detail:
-                self._log(f"       [{DIM}]{escape(step.detail)}[/]")
+                self._log_detail(step.detail, indent=7)
         self._log("")
         if self.cfg.token_address:
             self._wallet_worker()

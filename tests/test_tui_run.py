@@ -19,7 +19,8 @@ class FakeRunner:
     def __call__(self, cfg, *, confirmed=False, log=print, should_run=None,
                  on_tick=None):
         self.calls.append({"mode": cfg.mode, "confirmed": confirmed})
-        log("[fake] running")            # square brackets must not break the log
+        log("  market   : binance | btc/usdt | 1m")   # the CLI's own indent
+        log("  [fake] running")                       # ...and its [tags]
         while should_run():
             pass
 
@@ -464,3 +465,53 @@ def test_the_status_band_admits_when_the_dex_has_no_token_yet():
         return plain(app._status())
     band = with_app(steps, symbol="BTC/USDT", chain="solana")
     assert "no token yet" in band and "btc/usdt" not in band
+
+
+# ── the log keeps one left margin ────────────────────────────────
+def test_a_long_detail_wraps_under_its_own_indent():
+    """A line is a heading or sits under one; wrapping must not break that."""
+    async def steps(app, pilot):
+        app.logbox._history.clear()
+        app._log_detail("daily loss 10% | 20 trades/day | cooldown 300s | "
+                        "order <= 25% equity | kill switch 'STOP'", indent=7)
+        await pilot.pause()
+        return list(app.logbox._history)
+
+    async def go():
+        app = tui.LlnxTUI(Config())
+        async with app.run_test(size=(45, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            return await steps(app, pilot)
+    lines = [plain(line) for line in asyncio.run(go())]
+    assert len(lines) > 1, "this should have needed more than one line"
+    assert all(line.startswith(" " * 7) for line in lines)
+    assert all(len(line) <= 45 for line in lines)
+
+
+def test_runner_output_lands_flush_left_like_every_other_heading():
+    """The CLI indents its banner; in here that reads as a stray space."""
+    written = []
+
+    async def steps(pilot, app):     # drive() hands them over in this order
+        app._trading = True
+        app._run_worker(False)       # the faked runner logs "  [fake] running"
+        for _ in range(8):
+            await pilot.pause()
+        app._trading = False
+        written.extend(plain(line) for line in app.logbox._history)
+
+    drive(steps)
+    logged = [line for line in written if "binance" in line]
+    assert logged, "the runner's output should reach the log"
+    assert not any(line.startswith(" ") for line in logged)
+
+
+def test_the_setup_checklist_reaches_the_log():
+    async def steps(app, pilot):
+        app.action_guide()
+        await settle(pilot)
+        return "\n".join(plain(line) for line in app.logbox._history)
+    out = with_app(steps, token_address="MINT")
+    assert "going live on solana" in out
+    assert "SOLANA_PRIVATE_KEY" in out and "then go live" in out
+    assert "type the phrase" in out
