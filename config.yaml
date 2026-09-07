@@ -5,7 +5,7 @@
 exchange: binance          # price source (public data, no API key needed)
 symbol: BTC/USDT           # pair to trade
 timeframe: 1m              # candle size: 1m, 5m, 15m, 1h, ...
-strategy: sma              # sma | rsi | grid
+strategy: sma              # sma | ema | breakout | rsi | grid
 token_address: ""          # set a token address to trade it on a DEX instead
 chain: solana              # solana | ethereum | bsc | base | arbitrum | polygon
 starting_cash: 5.0         # your capital (5, 20, 100, ...)
@@ -32,6 +32,19 @@ kill_switch_file: STOP     # `llnx stop` creates it, `llnx resume` removes it
 sma_fast: 9
 sma_slow: 21
 
+# EMA crossover, entries only while the price is above the trend EMA.
+# Fewer trades than plain SMA, and it sits out sideways markets.
+ema_fast: 12
+ema_slow: 26
+ema_trend: 100
+
+# Donchian breakout: buy above the high of the last N candles, leave on the
+# low of the last M, or when the price falls back through a volatility stop.
+breakout_entry: 20
+breakout_exit: 10
+breakout_atr_period: 14
+breakout_atr_mult: 2.0
+
 # RSI
 rsi_period: 14
 rsi_oversold: 30           # buy when RSI drops below this
@@ -45,6 +58,9 @@ grid_max_steps: 5          # capital split into 5 chunks
 # global risk management (applies to every strategy; 0 = off)
 stop_loss_pct: 0.0         # 0.05 = sell at 5% loss
 take_profit_pct: 0.0       # 0.10 = sell at 10% profit
+trailing_stop_pct: 0.0     # 0.05 = sell 5% below the peak since entry.
+                           # Usually better than a fixed take-profit: it lets
+                           # a winner run instead of capping it.
 
 # solana swaps
 jupiter_slippage_bps: 100  # 100 = 1% max slippage on a real swap

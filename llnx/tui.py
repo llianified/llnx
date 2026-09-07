@@ -50,6 +50,8 @@ MODE_LABELS = {
 MODE_COLOURS = {"paper": DIM, "sandbox": WARN, "live": NEG}
 STRATEGY_LABELS = {
     "sma": "sma · crossover",
+    "ema": "ema · trend filter",
+    "breakout": "breakout · donchian",
     "rsi": "rsi · oversold/overbought",
     "grid": "grid · dca",
 }
@@ -68,7 +70,7 @@ SHORT_ROWS = 22
 # below this height the settings bar is hidden on its own (press t to show it)
 TINY_ROWS = 16
 # fields in the settings grid (the token address gets its own row below them)
-FIELD_COUNT = 8
+FIELD_COUNT = 10
 # the settings bar never shrinks below this, it would hide the buttons
 MIN_PANEL_ROWS = 6
 # log lines kept around so they can be re-wrapped when the terminal resizes
@@ -283,6 +285,14 @@ class LlnxTUI(App):
                 with Vertical(classes="field"):
                     yield Label("take-profit")
                     yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
+                with Vertical(classes="field"):
+                    yield Label("trailing stop")
+                    yield Input(str(self.cfg.trailing_stop_pct), id="trail",
+                                type="number")
+                with Vertical(classes="field"):
+                    yield Label("poll (seconds)")
+                    yield Input(str(self.cfg.poll_interval_sec), id="poll",
+                                type="integer")
             with Vertical(id="token", classes="field"):
                 yield Label(TOKEN_LABEL, id="token_label")
                 yield Input(self.cfg.token_address, id="token_address")
@@ -419,10 +429,11 @@ class LlnxTUI(App):
         money = (f"[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
                  f"   [{DIM}]cash[/] [{V}]{self._cash:.6g}[/]   {held}")
         if self._wide:
-            sl = f"{c.stop_loss_pct*100:g}%" if c.stop_loss_pct else "off"
-            tp = f"{c.take_profit_pct*100:g}%" if c.take_profit_pct else "off"
+            from .risk import RiskManager
+            risk = RiskManager(c.stop_loss_pct, c.take_profit_pct,
+                               c.trailing_stop_pct).describe().lower()
             first += f"   {self._state_word()}"
-            money += (f"   [{DIM}]sl[/] {sl} [{DIM}]·[/] [{DIM}]tp[/] {tp}"
+            money += (f"   [{DIM}]risk[/] {risk}"
                       f"   [{DIM}]today[/] {self._trades_today}")
         else:
             first += f"   {self._state_word()}"
@@ -447,6 +458,8 @@ class LlnxTUI(App):
             mode=self.query_one("#mode", Select).value,
             stop_loss_pct=num("#sl", 0.0),
             take_profit_pct=num("#tp", 0.0),
+            trailing_stop_pct=num("#trail", 0.0),
+            poll_interval_sec=int(num("#poll", self.cfg.poll_interval_sec)),
             chain=self.query_one("#chain", Select).value,
             token_address=self.query_one("#token_address", Input).value.strip())
         if not self._trading:
@@ -498,13 +511,20 @@ class LlnxTUI(App):
             return
         col = POS if rep.return_pct >= 0 else NEG
         bh = POS if rep.buy_hold_pct >= 0 else NEG
-        self._log(f"  [{DIM}]start cash  [/] [{V}]{rep.starting_cash:.2f}[/]")
-        self._log(f"  [{DIM}]final equity[/] [{V}]{rep.final_equity:.2f}[/]")
-        self._log(f"  [{DIM}]trades      [/] {rep.n_trades}   "
-                  f"[{DIM}]fees[/] {rep.total_fees:.4f}")
+        pf = "inf" if rep.profit_factor == float("inf") else f"{rep.profit_factor:.2f}"
+        self._log(f"  [{DIM}]equity      [/] [{V}]{rep.starting_cash:.2f}[/] "
+                  f"[{DIM}]→[/] [{V}]{rep.final_equity:.2f}[/]")
         self._log(f"  [{DIM}]return      [/] [{col}]{rep.return_pct:+.2f}%[/]   "
                   f"[{DIM}]buy&hold[/] [{bh}]{rep.buy_hold_pct:+.2f}%[/]")
-        self._log(f"  [{DIM}](a backtest is no promise of live results)[/]")
+        self._log(f"  [{DIM}]drawdown    [/] [{WARN}]{rep.max_drawdown_pct:.2f}%[/]   "
+                  f"[{DIM}]exposure[/] {rep.exposure_pct:.0f}%")
+        self._log(f"  [{DIM}]round trips [/] {rep.n_round_trips}   "
+                  f"[{DIM}]win rate[/] {rep.win_rate_pct:.0f}%   "
+                  f"[{DIM}]profit factor[/] {pf}")
+        self._log(f"  [{DIM}]fees        [/] {rep.fees_pct:.2f}% of capital "
+                  f"[{DIM}]({rep.n_trades} orders)[/]")
+        self._log(f"  [{DIM}]synthetic data — fetch real candles before believing "
+                  "it: llnx fetch[/]")
         self._log("")
 
     @on(Button.Pressed, "#run")

@@ -1,7 +1,9 @@
 """The llnx command line. `main.py` and `python3 -m llnx` both call main().
 
   llnx                                  full-screen TUI
-  llnx backtest --strategy rsi --cash 20
+  llnx fetch --symbol BTC/USDT --timeframe 1h --n 3000 -o btc.csv
+  llnx backtest --strategy ema --csv btc.csv
+  llnx optimize --csv btc.csv --sweep-trail   hunt for settings that hold up
   llnx run --mode paper --strategy grid --symbol ETH/USDT
   llnx run --mode live --yes            real orders, real money
   llnx stop                             kill switch, from any terminal
@@ -12,7 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from .backtest import run_backtest, synthetic_prices
+from .backtest import BacktestReport, read_closes, run_backtest, synthetic_prices
 from .chains import CHAINS
 from .config import MODES, Config
 from .execution import read_journal
@@ -40,6 +42,7 @@ def _apply_overrides(cfg: Config, args) -> Config:
         sma_slow=getattr(args, "slow", None),
         stop_loss_pct=getattr(args, "sl", None),
         take_profit_pct=getattr(args, "tp", None),
+        trailing_stop_pct=getattr(args, "trail", None),
         chain=getattr(args, "chain", None),
         token_address=getattr(args, "token", None) or getattr(args, "mint", None),
         mode=getattr(args, "mode", None),
@@ -51,26 +54,102 @@ def _apply_overrides(cfg: Config, args) -> Config:
     )
 
 
-def cmd_backtest(cfg: Config, args) -> None:
-    if args.csv:
-        with open(args.csv, encoding="utf-8") as f:
-            closes = [float(l.strip().split(",")[-1])
-                      for l in f if l.strip() and not l[0].isalpha()]
-        src = f"CSV {args.csv} ({len(closes)} rows)"
-    else:
-        closes = synthetic_prices(n=args.n, seed=args.seed)
-        src = f"synthetic data ({args.n} candles, seed={args.seed})"
-    rep = run_backtest(closes, cfg)
-    print("=" * 60)
+def load_closes(args) -> tuple:
+    """(closes, description) from a CSV when given, synthetic data otherwise."""
+    if getattr(args, "csv", None):
+        closes = read_closes(args.csv)
+        if len(closes) < 50:
+            raise SystemExit(f"[stop] {args.csv} has only {len(closes)} closes.")
+        return closes, f"CSV {args.csv} ({len(closes)} candles)"
+    closes = synthetic_prices(n=args.n, seed=args.seed)
+    return closes, (f"synthetic data ({args.n} candles, seed={args.seed}) "
+                    "-- fetch real candles for a number you can trust")
+
+
+def _pf(value: float) -> str:
+    return "inf" if value == float("inf") else f"{value:.2f}"
+
+
+def print_report(rep: BacktestReport, cfg: Config, src: str) -> None:
+    from .risk import RiskManager
+    risk = RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct, cfg.trailing_stop_pct)
+    print("=" * 62)
     print(f"  BACKTEST - {src}")
     print(f"  strategy     : {rep.strategy}")
-    print("-" * 60)
-    print(f"  start cash   : {rep.starting_cash:.2f}")
-    print(f"  final equity : {rep.final_equity:.2f}")
-    print(f"  trades       : {rep.n_trades}   total fees: {rep.total_fees:.4f}")
-    print(f"  return       : {rep.return_pct:+.2f}%   buy&hold: {rep.buy_hold_pct:+.2f}%")
-    print("=" * 60)
-    print("  (a backtest is no promise of live results)")
+    print(f"  risk         : {risk.describe()}")
+    print("-" * 62)
+    print(f"  start cash   : {rep.starting_cash:>10.2f}    "
+          f"final equity : {rep.final_equity:>10.2f}")
+    print(f"  return       : {rep.return_pct:>+9.2f}%    "
+          f"buy & hold   : {rep.buy_hold_pct:>+9.2f}%")
+    print(f"  max drawdown : {rep.max_drawdown_pct:>9.2f}%    "
+          f"exposure     : {rep.exposure_pct:>9.1f}%")
+    print(f"  round trips  : {rep.n_round_trips:>10}    "
+          f"win rate     : {rep.win_rate_pct:>9.1f}%")
+    print(f"  profit factor: {_pf(rep.profit_factor):>10}    "
+          f"avg trade    : {rep.avg_trade_pct:>+9.2f}%")
+    print(f"  orders       : {rep.n_trades:>10}    "
+          f"fees         : {rep.fees_pct:>9.2f}% of capital")
+    print("=" * 62)
+    print("  Drawdown is what you have to sit through; the return is what you get")
+    print("  paid for sitting through it. A backtest is not a promise.")
+
+
+def cmd_backtest(cfg: Config, args) -> None:
+    closes, src = load_closes(args)
+    print_report(run_backtest(closes, cfg), cfg, src)
+
+
+def cmd_optimize(cfg: Config, args) -> None:
+    from .optimize import GRIDS, sweep
+
+    closes, src = load_closes(args)
+    names = list(GRIDS) if args.strategy in (None, "all") else [args.strategy]
+    print(f"[optimize] {src}")
+    print(f"[optimize] ranking by {args.metric}, {args.split:.0%} in sample, "
+          f"the rest held back"
+          + (", trailing stop swept" if args.sweep_trail else ""))
+
+    for name in names:
+        try:
+            best = sweep(closes, cfg, strategy=name, split=args.split,
+                         metric=args.metric, top=args.top, trail=args.sweep_trail)
+        except ValueError as e:
+            print(f"  ! {name}: {e}")
+            continue
+        print()
+        print(f"  {name.upper()}")
+        print(f"  {'#':<3} {'settings':<44} {'in sample':<26} out of sample")
+        print("  " + "-" * 96)
+        for rank, c in enumerate(best, 1):
+            ins, out = c.in_sample, c.out_sample
+            left = (f"{ins.return_pct:+8.2f}% dd {ins.max_drawdown_pct:5.1f}% "
+                    f"n {ins.n_round_trips:<3}")
+            right = ("(no data)" if out is None else
+                     f"{out.return_pct:+8.2f}% dd {out.max_drawdown_pct:5.1f}% "
+                     f"n {out.n_round_trips:<3} pf {_pf(out.profit_factor)}")
+            print(f"  {rank:<3} {c.label():<44} {left:<26} {right}")
+        if best and best[0].out_sample is not None:
+            print(f"      buy & hold out of sample: "
+                  f"{best[0].out_sample.buy_hold_pct:+.2f}%")
+    print()
+    print("  Read the right-hand column. Settings that only shine in sample found")
+    print("  nothing; with this many combinations a few always will by luck.")
+
+
+def cmd_fetch(cfg: Config, args) -> None:
+    from .history import fetch_klines, write_csv
+
+    symbol = args.symbol or cfg.symbol
+    timeframe = args.timeframe or cfg.timeframe
+    print(f"[fetch] {symbol} {timeframe} x{args.n} from Binance...")
+    rows = fetch_klines(symbol, timeframe, args.n)
+    if not rows:
+        raise SystemExit("[stop] no candles came back.")
+    write_csv(args.out, rows)
+    print(f"[fetch] {len(rows)} candles -> {args.out}")
+    print(f"        llnx backtest --csv {args.out} --strategy ema")
+    print(f"        llnx optimize --csv {args.out} --sweep-trail")
 
 
 def cmd_run(cfg: Config, args) -> None:
@@ -180,6 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--slow", type=int, help="slow SMA")
     common.add_argument("--sl", type=float, help="stop-loss, e.g. 0.05")
     common.add_argument("--tp", type=float, help="take-profit, e.g. 0.10")
+    common.add_argument("--trail", type=float,
+                        help="trailing stop, e.g. 0.05 (sell 5%% off the peak)")
     common.add_argument("--mint", help="alias for --token (Solana mint)")
     common.add_argument("--token", help="token address (trade a DEX token)")
     common.add_argument("--chain", choices=list(CHAINS), help="network (default solana)")
@@ -194,10 +275,28 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("tui", parents=[common], help="full-screen TUI (default)")
     sub.add_parser("menu", parents=[common], help="plain text menu")
 
-    bt = sub.add_parser("backtest", parents=[common], help="quick strategy test")
-    bt.add_argument("--csv", help="price CSV (last column = close)")
-    bt.add_argument("--n", type=int, default=500)
-    bt.add_argument("--seed", type=int, default=42)
+    data = argparse.ArgumentParser(add_help=False)
+    data.add_argument("--csv", help="price CSV (a `close` column, or the last one)")
+    data.add_argument("--n", type=int, default=500, help="synthetic candles")
+    data.add_argument("--seed", type=int, default=42)
+
+    sub.add_parser("backtest", parents=[common, data], help="quick strategy test")
+
+    op = sub.add_parser("optimize", parents=[common, data],
+                        help="sweep the parameters and check them out of sample")
+    op.add_argument("--metric", default="score",
+                    choices=["score", "return", "profit_factor", "drawdown"],
+                    help="what to rank by (default: return per unit of drawdown)")
+    op.add_argument("--top", type=int, default=8, help="how many to report")
+    op.add_argument("--split", type=float, default=0.7,
+                    help="share of the data used to rank (default 0.7)")
+    op.add_argument("--sweep-trail", action="store_true", dest="sweep_trail",
+                    help="also sweep the trailing stop (4x the combinations, "
+                         "usually worth it)")
+
+    fe = sub.add_parser("fetch", parents=[common], help="download real candles to a CSV")
+    fe.add_argument("--n", type=int, default=2000, help="how many candles")
+    fe.add_argument("-o", "--out", default="candles.csv", help="output CSV")
 
     for name, help_text in (("run", "trade in the selected mode"),
                             ("paper", "alias for run --mode paper")):
@@ -228,9 +327,9 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-COMMANDS = {"backtest": cmd_backtest, "run": cmd_run, "status": cmd_status,
-            "stop": cmd_stop, "resume": cmd_resume, "scan": cmd_scan,
-            "check": cmd_check}
+COMMANDS = {"backtest": cmd_backtest, "optimize": cmd_optimize, "fetch": cmd_fetch,
+            "run": cmd_run, "status": cmd_status, "stop": cmd_stop,
+            "resume": cmd_resume, "scan": cmd_scan, "check": cmd_check}
 
 
 def main() -> None:

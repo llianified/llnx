@@ -174,7 +174,8 @@ def run_live(cfg: Config, *, confirmed: bool = False, log=print,
     executor = OrderExecutor(broker, guards, journal_path=cfg.orders_file,
                              symbol=symbol, mode=cfg.mode,
                              auto_execute=cfg.auto_execute, log=log, state=session)
-    risk = RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct)
+    risk = RiskManager(cfg.stop_loss_pct, cfg.take_profit_pct,
+                       cfg.trailing_stop_pct)
     notifier = build_notifier(cfg)
     engine = TradingEngine(strategy, executor, cfg.starting_cash, risk=risk,
                            notifier=notifier, symbol=symbol)
@@ -193,8 +194,7 @@ def run_live(cfg: Config, *, confirmed: bool = False, log=print,
     log(f"  strategy : {strategy.describe()}")
     log(f"  execute  : {'ON - orders are placed automatically' if cfg.auto_execute else 'OFF - signals only'}")
     log(f"  guards   : {guards.describe()}")
-    log(f"  risk     : SL {cfg.stop_loss_pct*100:g}% | TP {cfg.take_profit_pct*100:g}%"
-        + ("  (off)" if not risk.active else ""))
+    log(f"  risk     : {risk.describe()}")
     log(f"  notify   : {'telegram on' if notifier.enabled else 'off'}")
     log(f"  journal  : {cfg.orders_file}")
     log(f"  polling every {cfg.poll_interval_sec}s. Ctrl+C to stop.")

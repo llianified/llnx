@@ -201,10 +201,11 @@ Keys: `b` backtest · `r` run · `c` safety check · `s` status · `x` stop ·
 ## Command line
 
 ```bash
-# Backtest (no internet, no packages)
-python3 main.py backtest --strategy sma  --cash 20
-python3 main.py backtest --strategy rsi  --sl 0.03 --tp 0.10
-python3 main.py backtest --csv prices.csv                      # your own data
+# Data and research
+python3 main.py fetch --symbol BTC/USDT --timeframe 1h --n 3000 -o btc.csv
+python3 main.py backtest --csv btc.csv --strategy ema --trail 0.05
+python3 main.py backtest --strategy sma --cash 20              # synthetic, offline
+python3 main.py optimize --csv btc.csv --sweep-trail           # sweep everything
 
 # Trade
 python3 main.py run --mode paper --strategy grid --symbol ETH/USDT --cash 10
@@ -310,10 +311,84 @@ The wallet's USDC and token balances are read straight from the chain, and
 | strategy | buys | sells | suits |
 |---|---|---|---|
 | `sma`  | golden cross (fast SMA > slow) | death cross | trending markets |
+| `ema`  | EMA cross up, **only while above a long trend EMA** | EMA cross down | trends, and it sits out the chop |
+| `breakout` | close above the high of the last N candles | channel low, or a volatility stop | strong moves; trades rarely |
 | `rsi`  | RSI < oversold (e.g. 30) | RSI > overbought (e.g. 70) | choppy markets |
 | `grid` | every `step_pct` down, in chunks | `take_profit_pct` above the average entry | sideways or falling markets |
 
+`ema` and `breakout` are the two built for fees: a plain crossover buys every
+wiggle, and at 0.1% a side that is what eats a small account. The trend filter
+and the channel both refuse to trade unless something is actually moving.
+
+### Stops
+
+| setting | what it does |
+|---|---|
+| `stop_loss_pct` | hard floor under the entry price |
+| `take_profit_pct` | sells at a fixed gain — simple, but it caps the winner |
+| `trailing_stop_pct` | follows the price up and sells once it turns |
+
+The trailing stop is the single biggest lever on returns. A trend strategy
+makes its money on the few trades that run a long way, and a fixed
+take-profit is what stops them running. Use one or the other, rarely both.
+
 All parameters live in `config.yaml`, or can be set from the menu and the TUI.
+
+## Finding something that actually works
+
+Guessing parameters is how you end up with a bot that loses slowly. The tools
+for not guessing:
+
+**1. Get real candles.** Synthetic prices are smooth, and every strategy looks
+brilliant on them.
+
+```bash
+python3 main.py fetch --symbol BTC/USDT --timeframe 1h --n 3000 -o btc.csv
+```
+
+**2. Backtest, and read past the return.**
+
+```bash
+python3 main.py backtest --csv btc.csv --strategy ema --trail 0.05
+```
+
+```
+  return       :    +28.40%    buy & hold   :    +19.20%
+  max drawdown :      11.30%    exposure     :      42.1%
+  round trips  :         14    win rate     :      57.1%
+  profit factor:       1.84    avg trade    :     +2.03%
+  orders       :         28    fees         :      2.80% of capital
+```
+
+Return alone hides everything: 40% earned through a 60% drawdown is a
+different animal from 30% earned through 8%, and on a small account the fee
+line decides more than the entries do. If a strategy cannot beat buy & hold,
+it is costing you money to run.
+
+**3. Sweep the parameters — and check them out of sample.**
+
+```bash
+python3 main.py optimize --csv btc.csv --sweep-trail          # every strategy
+python3 main.py optimize --csv btc.csv --strategy ema --top 5 # just one
+```
+
+```
+  #   settings                          in sample                out of sample
+  1   fast=8 slow=21 trend=100 trail=5%   +69.01% dd 11.7% n 17    +25.85% dd  6.4% n 4
+  5   fast=8 slow=26 trend=50 trail=5%    +43.22% dd 14.8% n 18     -2.76% dd 15.7% n 8
+      buy & hold out of sample: +19.09%
+```
+
+The sweep ranks candidates on the first 70% of the series and then replays the
+winners on the 30% they have never seen. **Read the right-hand column.** Row 5
+above is what overfitting looks like: it topped the in-sample table and lost
+money on data it had not memorised. Row 1 held up and beat buy & hold — that
+is a candidate worth paper trading.
+
+Rank by `--metric score` (return per unit of drawdown, the default), `return`,
+`profit_factor` or `drawdown`. Then run the winner in paper mode for a while
+before it touches money — a backtest cannot model slippage, a thin order book
+or an exchange having a bad day.
 
 ## Keys
 
@@ -342,9 +417,12 @@ config.yaml                # every setting
 llnx/
   cli.py                   # subcommands: run, backtest, status, stop, resume, scan
   config.py                # config loader (PyYAML optional)
-  strategies/              # indicators + strategies (sma, rsi, grid) + registry
+  strategies/              # indicators + strategies (sma, ema, breakout, rsi, grid)
+  backtest.py              # backtest engine, metrics and synthetic data
+  optimize.py              # parameter sweep with an out-of-sample check
+  history.py               # download real candles into a CSV
   engine.py                # risk + strategy + broker + notifier
-  risk.py                  # stop-loss / take-profit
+  risk.py                  # stop-loss / take-profit / trailing stop
   guards.py                # guardrails: daily loss, trade cap, cooldown, kill switch
   execution.py             # the executor: guards, order journal, reconciliation
   broker.py                # paper broker (partial orders, average entry)
@@ -360,7 +438,6 @@ llnx/
   feeds.py                 # picks the price source (exchange / DEX)
   runner.py                # the live loop + persistence (used by CLI, menu, TUI)
   notify.py                # NullNotifier / TelegramNotifier
-  backtest.py              # backtest engine + synthetic data
   menu.py                  # plain text menu
   tui.py                   # full-screen TUI (Textual)
 tests/                     # unit tests (pytest)
