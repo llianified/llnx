@@ -164,9 +164,19 @@ Three bands, always in the same place:
   clear button) empties it without touching the run, the journal or the state.
 - **settings** — the bar at the bottom; press `t` to fold it away.
 
+Two markets share that bar and only one is ever live. Leave the token address
+empty and llnx trades the **pair** on the exchange; fill it in and it trades
+that **token on the chain** instead. Whichever half is idle is dimmed and says
+so, so `chain: solana` never sits there looking busy next to `pair: btc/usdt`.
+
 Desktop (120x38):
 
 ![TUI desktop](docs/tui.png)
+
+DEX mode — a token address takes over, the pair is dimmed out of the way, and
+prices stay readable at meme-coin scale (`0.0000182`, not `1.82e-05`):
+
+![TUI trading a Solana token](docs/tui_dex.png)
 
 Live mode asks before it starts. Nothing is sent until the phrase is typed —
 the run button and the mode chip turn red as soon as you select it:
