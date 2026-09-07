@@ -447,7 +447,19 @@ or an exchange having a bad day.
 
 ## Keys
 
-Keys never live in `config.yaml`. They come from the environment:
+Press `w` in the TUI and type them in — the private key is masked while you
+type, and you choose what happens to it:
+
+![TUI keys](docs/tui_keys.png)
+
+**use this session** keeps it in the process and nowhere else; **remember on
+this device** writes `.llnx.env`, readable only by you (0600) and added to
+`.gitignore`. Delete that file to forget. What comes back on screen is the
+wallet's public address, never the key.
+
+Keys never live in `config.yaml` — that file is meant to be shared. The
+environment always wins over a saved file, so exporting them stays the safest
+way to run:
 
 ```bash
 export EXCHANGE_API_KEY="..."          # exchange orders (ccxt)
@@ -460,6 +472,9 @@ export TELEGRAM_CHAT_ID="123456789"
 
 With Telegram set, every trade is sent to you as it happens — handy when the
 bot is the one pressing the buttons.
+
+> Whatever you paste in, make it a **burner wallet** holding only what you are
+> trading. A bot that can spend is a bot that can spend everything in reach.
 
 Everything that is not a secret lives in `config.yaml` — including the Jupiter
 endpoints (`jupiter_api_url`, `jupiter_tokens_url`), so a moved API is a

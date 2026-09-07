@@ -359,6 +359,8 @@ COMMANDS = {"backtest": cmd_backtest, "optimize": cmd_optimize, "fetch": cmd_fet
 
 
 def main() -> None:
+    from .credentials import load
+    load()                      # keys saved on this device, if there are any
     args = build_parser().parse_args()
     cmd = args.cmd or "tui"
     if cmd == "paper":                      # the old name for `run --mode paper`

@@ -18,6 +18,7 @@ Needs: pip install textual   |   run: llnx
 from __future__ import annotations
 
 import math
+import os
 
 from rich.markup import escape
 from textual import events, on, work
@@ -304,6 +305,72 @@ class ConfirmLive(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class KeysScreen(ModalScreen[dict]):
+    """Hand llnx a wallet without exporting it first.
+
+    The key is masked while you type, never written to config.yaml, never
+    logged, and only reaches disk if you press the button that says so. What
+    comes back on screen afterwards is the public address, which is the part
+    worth checking anyway.
+    """
+
+    CSS = """
+    KeysScreen { align: center middle; background: #131418 75%; }
+    #keys { width: 72; max-width: 96%; height: auto; padding: 1 2;
+            background: #1a1b21; border: round #8fa6b2; }
+    #keys Label { color: #6a6f7a; padding: 0 1; height: 1; }
+    #keys .note { color: #7a8089; padding: 0 1; height: auto; }
+    #keys Input { margin-bottom: 1; background: #101115; color: #d3d7df;
+                  border: none; height: 1; padding: 0 1; }
+    #keys_actions { height: auto; layout: grid; grid-size: 2; grid-gutter: 0 2;
+                    margin-top: 1; }
+    #keys_actions Button { border: none; height: 1; width: 1fr; min-width: 0;
+                           background: #23252c; color: #b9bec8; }
+    #keys_save { background: #26333a; color: #cfdde3; }
+    """
+
+    BINDINGS = [("escape", "cancel", "cancel")]
+
+    def __init__(self, fields: list, title: str) -> None:
+        super().__init__()
+        self._fields = fields            # (env name, label, is_secret)
+        self._title = title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="keys"):
+            yield Static(self._title, classes="note")
+            for name, label, secret in self._fields:
+                yield Label(label)
+                yield Input(os.environ.get(name, ""), id=f"key_{name}",
+                            password=secret,
+                            placeholder="•" * 12 if secret else "")
+            yield Static("a burner wallet, holding only what you are trading. "
+                         "the key is masked here and never written to "
+                         "config.yaml.", classes="note")
+            with Vertical(id="keys_actions"):
+                yield Button("use this session", id="keys_session")
+                yield Button("remember on this device", id="keys_save")
+
+    def on_mount(self) -> None:
+        first = self._fields[0][0]
+        self.query_one(f"#key_{first}", Input).focus()
+
+    def _values(self) -> dict:
+        return {name: self.query_one(f"#key_{name}", Input).value.strip()
+                for name, _, _ in self._fields}
+
+    @on(Button.Pressed, "#keys_session")
+    def _session(self) -> None:
+        self.dismiss({"values": self._values(), "remember": False})
+
+    @on(Button.Pressed, "#keys_save")
+    def _remember(self) -> None:
+        self.dismiss({"values": self._values(), "remember": True})
+
+    def action_cancel(self) -> None:
+        self.dismiss({})
+
+
 class LlnxTUI(App):
     TITLE = "llnx"
     SUB_TITLE = "auto-execute"
@@ -401,6 +468,7 @@ class LlnxTUI(App):
         ("x", "stop", "stop"),
         ("l", "clear", "clear"),
         ("g", "guide", "setup"),
+        ("w", "keys", "keys"),
         ("t", "toggle_panel", "settings"),
         ("q", "quit", "quit"),
     ]
@@ -1021,6 +1089,49 @@ class LlnxTUI(App):
             lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
             self.call_from_thread(self._log_detail, f"· {msg}", 2, lc)
 
+    def action_keys(self) -> None:
+        """Type the wallet in, instead of exporting it before you start."""
+        from .credentials import EXCHANGE_KEYS, SOLANA_KEYS
+        self._sync_cfg()
+        if self.cfg.token_address or self._market == "dex":
+            fields = [(SOLANA_KEYS[1], "solana rpc url", False),
+                      (SOLANA_KEYS[0], "private key (base58)", True)]
+            title = "the wallet llnx will swap with"
+        else:
+            fields = [(EXCHANGE_KEYS[0], f"{self.cfg.exchange} api key", True),
+                      (EXCHANGE_KEYS[1], f"{self.cfg.exchange} api secret", True)]
+            title = "spot trading only, withdrawals disabled"
+        self.push_screen(KeysScreen(fields, title), self._keys_given)
+
+    def _keys_given(self, result: dict) -> None:
+        from .credentials import ENV_FILE, SECRET_NAMES, fingerprint, save, short
+        if not result or not any(result.get("values", {}).values()):
+            self._log(f"[{DIM}]keys unchanged.[/]")
+            return
+        values = {k: v for k, v in result["values"].items() if v}
+        os.environ.update(values)
+        for name in values:
+            mark = "hidden" if name in SECRET_NAMES else values[name]
+            self._log(f"  [{POS}]set[/] [{DIM}]{name}[/] "
+                      f"[{DIM if name in SECRET_NAMES else V}]{escape(mark)}[/]")
+        if result.get("remember"):
+            path = save(values)
+            self._log(f"  [{WARN}]saved[/] [{DIM}]{path} — readable only by you, "
+                      "and added to .gitignore. delete it to forget.[/]")
+        key = values.get("SOLANA_PRIVATE_KEY")
+        if key:
+            address = fingerprint(key)
+            if address:
+                self._log(f"  [{POS}]wallet[/] [{V}]{short(address)}[/] "
+                          f"[{DIM}]{address}[/]")
+                self._log("")
+                self._wallet_worker()
+                return
+            self._log(f"  [{NEG}]that key did not parse[/] [{DIM}]it has to be "
+                      "base58, and solders has to be installed to check it: "
+                      "pip install solders[/]")
+        self._log("")
+
     def action_guide(self) -> None:
         """What is still between this config and a real order."""
         from .readiness import DONE, TODO, checklist
@@ -1049,6 +1160,11 @@ class LlnxTUI(App):
             return
         try:
             sol, usdc = solana_probe()
+        except ImportError:
+            self.call_from_thread(
+                self._log, f"  [{WARN}]wallet[/] [{DIM}]pip install solders to "
+                           "read it[/]")
+            return
         except Exception as e:
             self.call_from_thread(
                 self._log, f"  [{NEG}]wallet[/] [{DIM}]{escape(repr(e))}[/]")
