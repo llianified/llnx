@@ -58,19 +58,90 @@ STRATEGY_LABELS = {
     "grid": "grid · dca",
 }
 TIMEFRAMES = ("1m", "5m", "15m", "1h", "4h")
-# Two markets share this bar and only one is ever live: an exchange pair, or a
-# token address on a chain. Whichever is idle is dimmed and says so, because a
-# lit-up "chain: solana" next to "pair: btc/usdt" reads like both are running.
-PAIR_LABELS = {(True, True): "pair · unused in dex mode",
-               (True, False): "pair · unused",
-               (False, True): "pair", (False, False): "pair"}
-CHAIN_LABELS = {(True, True): "chain", (True, False): "chain",
-                (False, True): "chain · only for a token address",
-                (False, False): "chain · dex only"}
-TOKEN_LABELS = {(True, True): "token address · dex mode is on",
-                (True, False): "token address · dex on",
-                (False, True): "token address (fill this in for dex mode)",
-                (False, False): "token address (optional)"}
+
+# Two markets, and only one is ever live. It is a choice you make here, not
+# something inferred from whether another field happens to be filled in.
+MARKET_LABELS = {"exchange": "exchange · a pair", "dex": "dex · a token address"}
+
+# Every field says what it is in one line, shown while it has focus. A settings
+# bar full of bare numbers -- 0.05, 60, 0.0 -- is a quiz, not an interface.
+HINTS = {
+    "market": "what you trade: a pair on an exchange, or one token on a chain.",
+    "symbol": "the exchange pair. the left side is what you hold, the right is "
+              "what you pay with.",
+    "chain": "which network the token address below lives on.",
+    "token_address": "paste the token's address. this is what gets traded.",
+    "timeframe": "candle size the strategy reads. smaller = more signals, more "
+                 "noise, more fees.",
+    "mode": "paper: pretend money. sandbox: exchange testnet. live: real orders "
+            "with real money.",
+    "strategy": "when to buy and sell. `llnx optimize` searches its settings for "
+                "you.",
+    "cash": "capital to work with. in live mode your real exchange or wallet "
+            "balance wins.",
+    "poll": "seconds between price checks. the bot can never trade faster than "
+            "this.",
+    "sl": "sell if the price drops this far below your entry. 0 = off.",
+    "tp": "sell once you are this far up. 0 = off — a trailing stop usually "
+          "earns more.",
+    "trail": "sell this far below the highest price since you bought. lets a "
+             "winner keep running.",
+    "max_order": "the largest single order, as a share of your equity. 0 = no cap.",
+    "daily_loss": "stop buying for the rest of the day after losing this much. "
+                  "selling still works.",
+    "cooldown": "seconds the bot must wait after one order before the next.",
+    "max_trades": "most orders it may place in one day. 0 = unlimited.",
+    "sma_fast": "the quick average. it crosses the slow one to trigger a trade.",
+    "sma_slow": "the slow average. further apart = fewer, later signals.",
+    "ema_fast": "the quick average. reacts sooner than an sma of the same length.",
+    "ema_slow": "the slow average it has to cross.",
+    "ema_trend": "the filter: it only buys while the price is above this average.",
+    "breakout_entry": "buy when the price closes above the high of this many candles.",
+    "breakout_exit": "sell when it closes below the low of this many candles.",
+    "breakout_atr_mult": "sell this many average moves below the peak. bigger = "
+                         "more room to breathe.",
+    "rsi_period": "how many candles the rsi looks back over.",
+    "rsi_oversold": "buy when rsi falls under this. lower = rarer, deeper dips.",
+    "rsi_overbought": "sell when rsi rises above this.",
+    "grid_step_pct": "buy again each time the price falls this much below your "
+                     "last buy.",
+    "grid_take_profit_pct": "sell everything once the price is this far above your "
+                            "average entry.",
+    "grid_max_steps": "how many pieces the cash is split into.",
+}
+
+# Which knobs belong to which strategy. Only the chosen one is ever on screen:
+# an rsi period sitting next to a grid step is how a settings bar stops making
+# sense.
+STRATEGY_FIELDS = {
+    "sma": ("sma_fast", "sma_slow"),
+    "ema": ("ema_fast", "ema_slow", "ema_trend"),
+    "breakout": ("breakout_entry", "breakout_exit", "breakout_atr_mult"),
+    "rsi": ("rsi_period", "rsi_oversold", "rsi_overbought"),
+    "grid": ("grid_step_pct", "grid_take_profit_pct", "grid_max_steps"),
+}
+STRATEGY_CAPTIONS = {
+    "sma": "sma · two averages crossing",
+    "ema": "ema · two averages, plus a trend filter",
+    "breakout": "breakout · a channel and a volatility stop",
+    "rsi": "rsi · buy the dip, sell the rip",
+    "grid": "grid · buy the way down, sell the bounce",
+}
+FIELD_LABELS = {
+    "sma_fast": "fast average", "sma_slow": "slow average",
+    "ema_fast": "fast ema", "ema_slow": "slow ema", "ema_trend": "trend filter ema",
+    "breakout_entry": "buy above (candles)", "breakout_exit": "sell below (candles)",
+    "breakout_atr_mult": "volatility stop (x)",
+    "rsi_period": "rsi period", "rsi_oversold": "buy under", "rsi_overbought":
+    "sell over",
+    "grid_step_pct": "step down (%)", "grid_take_profit_pct": "target (+%)",
+    "grid_max_steps": "steps",
+}
+# percentages are entered as percentages here, not as 0.05
+PERCENT_FIELDS = ("sl", "tp", "trail", "max_order", "daily_loss",
+                  "grid_step_pct", "grid_take_profit_pct")
+INTEGER_FIELDS = ("sma_fast", "sma_slow", "ema_fast", "ema_slow", "ema_trend",
+                  "breakout_entry", "breakout_exit", "rsi_period", "grid_max_steps")
 
 # from this width up the settings bar uses four columns instead of two
 WIDE_COLS = 96
@@ -82,10 +153,12 @@ COMPACT_ROWS = 28
 SHORT_ROWS = 22
 # below this height the settings bar is hidden on its own (press t to show it)
 TINY_ROWS = 16
-# fields in the settings grid (the token address gets its own row below them)
-FIELD_COUNT = 10
 # the settings bar never shrinks below this, it would hide the buttons
 MIN_PANEL_ROWS = 6
+# ...and never grows so far that the output has less than this left
+MIN_LOG_ROWS = 10
+# header, status band and footer, which the settings bar does not get either
+CHROME_ROWS = 4
 # log lines kept around so they can be re-wrapped when the terminal resizes
 LOG_HISTORY = 500
 # width of the price column in the log, so every row lines up
@@ -111,6 +184,20 @@ def format_price(price: float) -> str:
     # keep three significant digits however small the token is
     decimals = min(12, -int(math.floor(math.log10(price))) + 2)
     return f"{price:.{decimals}f}"
+
+
+def pct_in(fraction: float) -> str:
+    """0.05 -> "5". Percentages are entered as percentages."""
+    value = fraction * 100
+    return f"{value:g}"
+
+
+def pct_out(text: str, default: float = 0.0) -> float:
+    """"5" or "5%" -> 0.05."""
+    try:
+        return float(text.strip().rstrip("%")) / 100
+    except (AttributeError, ValueError):
+        return default
 
 
 def format_amount(amount: float) -> str:
@@ -225,9 +312,14 @@ class LlnxTUI(App):
     /* ── settings bar at the bottom ─────────────────────────────── */
     #panel { padding: 1 2 0 2; background: #1a1b21; border-top: solid #272932; }
     #panel.hidden { display: none; }
-    #fields { height: 1fr; layout: grid; grid-size: 2; grid-rows: auto;
-              grid-gutter: 0 3; }
+    #fields { height: 1fr; }
+    .section { height: auto; margin-bottom: 1; }
+    .row { height: auto; layout: grid; grid-size: 2; grid-rows: auto;
+           grid-gutter: 0 3; }
     .field { height: auto; }
+    .field.hidden { display: none; }
+    .caption { height: 1; color: #565a62; padding: 0 1; }
+    #hint { height: auto; min-height: 1; color: #7a8089; padding: 0 1; }
     Label { color: #6a6f7a; padding: 0 1; height: 1; }
     .field.-off Label { color: #4b4e56; }
     .field.-off Input { color: #565a62; }
@@ -251,13 +343,16 @@ class LlnxTUI(App):
     #stopbtn { color: #a89b9b; }
 
     /* ── wide terminal: four columns of fields, one row of buttons ─ */
-    Screen.-wide #fields { grid-size: 4; }
+    Screen.-wide .row { grid-size: 4; }
     Screen.-wide #actions { grid-size: 5; }
 
     /* ── short terminal: tighter spacing ─────────────────────────── */
     Screen.-compact #panel { padding: 0 2; }
     Screen.-compact #actions { padding: 1 0 0 0; }
     Screen.-narrow FooterKey.-command-palette { display: none; }
+
+    Screen.-compact .section { margin-bottom: 0; }
+    Screen.-tight .section { margin-bottom: 0; }
 
     /* ── very short terminal: drop the padding ───────────────────── */
     Screen.-short #status { padding: 0 1; }
@@ -279,6 +374,8 @@ class LlnxTUI(App):
     def __init__(self, cfg: Config) -> None:
         super().__init__()
         self.cfg = cfg
+        self._market = "dex" if cfg.token_address else "exchange"
+        self._saved_token = cfg.token_address   # kept while the pair is selected
         self._trading = False
         self._app_ready = False
         self._wide = None      # set on the first layout pass
@@ -300,46 +397,103 @@ class LlnxTUI(App):
             yield WrapLog(id="log", markup=True, highlight=False, wrap=True)
         with Vertical(id="panel"):
             with VerticalScroll(id="fields"):
-                with Vertical(classes="field"):
-                    yield Label("mode")
-                    yield Select([(MODE_LABELS[m], m) for m in MODES],
-                                 value=self.cfg.mode, id="mode", allow_blank=False)
-                with Vertical(classes="field"):
-                    yield Label("cash ($)")
-                    yield Input(str(self.cfg.starting_cash), id="cash", type="number")
-                with Vertical(id="pair_field", classes="field"):
-                    yield Label("pair", id="pair_label")
-                    yield Input(self.cfg.symbol.lower(), id="symbol")
-                with Vertical(classes="field"):
-                    yield Label("timeframe")
-                    yield Select([(t, t) for t in TIMEFRAMES], value=self.cfg.timeframe,
-                                 id="timeframe", allow_blank=False)
-                with Vertical(classes="field"):
-                    yield Label("strategy")
-                    yield Select([(STRATEGY_LABELS[n], n) for n in STRATEGY_LABELS],
-                                 value=self.cfg.strategy, id="strategy",
-                                 allow_blank=False)
-                with Vertical(classes="field"):
-                    yield Label("stop-loss")
-                    yield Input(str(self.cfg.stop_loss_pct), id="sl", type="number")
-                with Vertical(classes="field"):
-                    yield Label("take-profit")
-                    yield Input(str(self.cfg.take_profit_pct), id="tp", type="number")
-                with Vertical(classes="field"):
-                    yield Label("trailing stop")
-                    yield Input(str(self.cfg.trailing_stop_pct), id="trail",
-                                type="number")
-                with Vertical(classes="field"):
-                    yield Label("poll (seconds)")
-                    yield Input(str(self.cfg.poll_interval_sec), id="poll",
-                                type="integer")
-                with Vertical(id="chain_field", classes="field"):
-                    yield Label("chain", id="chain_label")
-                    yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
-                                 value=self.cfg.chain, id="chain", allow_blank=False)
-            with Vertical(id="token", classes="field"):
-                yield Label(TOKEN_LABELS[(False, True)], id="token_label")
-                yield Input(self.cfg.token_address, id="token_address")
+                with Vertical(classes="section"):
+                    yield Static("what to trade", classes="caption")
+                    with Vertical(classes="row"):
+                        with Vertical(id="market_field", classes="field"):
+                            yield Label("market")
+                            yield Select([(MARKET_LABELS[m], m) for m in MARKET_LABELS],
+                                         value=self._market, id="market",
+                                         allow_blank=False)
+                        with Vertical(id="pair_field", classes="field"):
+                            yield Label("pair")
+                            yield Input(self.cfg.symbol.lower(), id="symbol")
+                        with Vertical(id="chain_field", classes="field"):
+                            yield Label("chain")
+                            yield Select([(CHAINS[c].name.lower(), c) for c in CHAINS],
+                                         value=self.cfg.chain, id="chain",
+                                         allow_blank=False)
+                        with Vertical(classes="field"):
+                            yield Label("candle size")
+                            yield Select([(t, t) for t in TIMEFRAMES],
+                                         value=self.cfg.timeframe, id="timeframe",
+                                         allow_blank=False)
+                    with Vertical(id="token", classes="field"):
+                        yield Label("token address")
+                        yield Input(self.cfg.token_address, id="token_address",
+                                    placeholder="paste the mint / contract address")
+
+                with Vertical(classes="section"):
+                    yield Static("how it runs", classes="caption")
+                    with Vertical(classes="row"):
+                        with Vertical(classes="field"):
+                            yield Label("mode")
+                            yield Select([(MODE_LABELS[m], m) for m in MODES],
+                                         value=self.cfg.mode, id="mode",
+                                         allow_blank=False)
+                        with Vertical(classes="field"):
+                            yield Label("strategy")
+                            yield Select([(STRATEGY_LABELS[n], n)
+                                          for n in STRATEGY_LABELS],
+                                         value=self.cfg.strategy, id="strategy",
+                                         allow_blank=False)
+                        with Vertical(id="cash_field", classes="field"):
+                            yield Label("cash ($)")
+                            yield Input(str(self.cfg.starting_cash), id="cash",
+                                        type="number")
+                        with Vertical(classes="field"):
+                            yield Label("check every (s)")
+                            yield Input(str(self.cfg.poll_interval_sec), id="poll",
+                                        type="integer")
+
+                with Vertical(classes="section"):
+                    yield Static(STRATEGY_CAPTIONS[self.cfg.strategy],
+                                 id="strategy_caption", classes="caption")
+                    with Vertical(classes="row"):
+                        for name in sum(STRATEGY_FIELDS.values(), ()):
+                            with Vertical(id=f"{name}_field", classes="field"):
+                                yield Label(FIELD_LABELS[name])
+                                yield Input(self._strategy_value(name), id=name,
+                                            type=("integer" if name in INTEGER_FIELDS
+                                                  else "number"))
+
+                with Vertical(classes="section"):
+                    yield Static("when to sell   ·   0 = off", classes="caption")
+                    with Vertical(classes="row"):
+                        with Vertical(classes="field"):
+                            yield Label("stop-loss (%)")
+                            yield Input(pct_in(self.cfg.stop_loss_pct), id="sl",
+                                        type="number")
+                        with Vertical(classes="field"):
+                            yield Label("take-profit (%)")
+                            yield Input(pct_in(self.cfg.take_profit_pct), id="tp",
+                                        type="number")
+                        with Vertical(classes="field"):
+                            yield Label("trailing stop (%)")
+                            yield Input(pct_in(self.cfg.trailing_stop_pct), id="trail",
+                                        type="number")
+
+                with Vertical(classes="section"):
+                    yield Static("when it stops itself   ·   0 = off",
+                                 classes="caption")
+                    with Vertical(classes="row"):
+                        with Vertical(classes="field"):
+                            yield Label("max order (%)")
+                            yield Input(pct_in(self.cfg.max_order_pct), id="max_order",
+                                        type="number")
+                        with Vertical(classes="field"):
+                            yield Label("daily loss (%)")
+                            yield Input(pct_in(self.cfg.max_daily_loss_pct),
+                                        id="daily_loss", type="number")
+                        with Vertical(classes="field"):
+                            yield Label("cooldown (s)")
+                            yield Input(str(self.cfg.cooldown_sec), id="cooldown",
+                                        type="integer")
+                        with Vertical(classes="field"):
+                            yield Label("trades / day")
+                            yield Input(str(self.cfg.max_trades_per_day),
+                                        id="max_trades", type="integer")
+            yield Static(HINTS["market"], id="hint")
             with Vertical(id="actions"):
                 yield Button("run", id="run")
                 yield Button("backtest", id="backtest")
@@ -366,6 +520,16 @@ class LlnxTUI(App):
             self._refresh_status()
         self._resize_panel(height)
 
+    def _wanted_rows(self, columns: int, margins: bool) -> int:
+        rows = 0
+        for size in self._group_sizes():             # caption + fields + margin
+            rows += 1 + -(-size // columns) * 2 + (1 if margins else 0)
+        if self._market == "dex":
+            rows += 2                                # the token address row
+        buttons = 1 if self._wide else 5             # one row, or three + gutters
+        chrome = 3 if self._compact else 4           # border, padding, spare
+        return rows + 1 + buttons + chrome           # +1 = the hint line
+
     def _panel_rows(self, height: int) -> int:
         """How tall the settings bar may be, in rows.
 
@@ -373,11 +537,20 @@ class LlnxTUI(App):
         screen; if capped, the fields scroll and the buttons stay put.
         """
         columns = 4 if self._wide else 2
-        field_rows = -(-FIELD_COUNT // columns) + 1  # ceil, +1 = token address
-        buttons = 1 if self._wide else 5             # one row, or three + gutters
-        chrome = 4 if self._compact else 5           # border, padding, spare
-        wanted = field_rows * 2 + buttons + chrome   # each field: label + value
-        return max(MIN_PANEL_ROWS, min(wanted, height // 2))
+        room = max(MIN_PANEL_ROWS, height - MIN_LOG_ROWS - CHROME_ROWS)
+        wanted = self._wanted_rows(columns, margins=not self._compact)
+        # rather than scroll, first drop the air between the sections
+        tight = wanted > room
+        if tight:
+            wanted = self._wanted_rows(columns, margins=False)
+        self.screen.set_class(tight, "-tight")
+        return max(MIN_PANEL_ROWS, min(wanted, room))
+
+    def _group_sizes(self) -> tuple:
+        """How many fields each section is showing right now."""
+        trading = 4 if self.query("#cash_field") and not self.query(
+            "#cash_field").first().has_class("hidden") else 3
+        return (3, trading, len(STRATEGY_FIELDS[self.cfg.strategy]), 3, 4)
 
     def _resize_panel(self, height: int) -> None:
         panel = self.query("#panel")
@@ -387,30 +560,55 @@ class LlnxTUI(App):
 
     def _relabel(self) -> None:
         """Shorten the wordy labels when the terminal is narrow."""
-        self._mark_market()
+        self._apply_market()
+        self._apply_strategy()
+        self._apply_mode()
         self._relabel_select("#strategy", STRATEGY_LABELS)
         self._relabel_select("#mode", MODE_LABELS)
+        self._relabel_select("#market", MARKET_LABELS)
 
-    def _mark_market(self) -> None:
-        """Light up the market in use and dim the other one.
+    def _strategy_value(self, name: str) -> str:
+        value = getattr(self.cfg, name)
+        return pct_in(value) if name in PERCENT_FIELDS else f"{value:g}"
 
-        A token address means the bot trades that token on `chain`; an empty
-        one means it trades `pair` on the exchange. Nothing else switches it,
-        so the bar has to show which half is live.
+    def _apply_strategy(self) -> None:
+        """Only the chosen strategy's knobs stay on screen."""
+        wanted = STRATEGY_FIELDS[self.cfg.strategy]
+        for name in sum(STRATEGY_FIELDS.values(), ()):
+            field = self.query(f"#{name}_field")
+            if field:
+                field.first().set_class(name not in wanted, "hidden")
+        caption = self.query("#strategy_caption")
+        if caption:
+            caption.first(Static).update(STRATEGY_CAPTIONS[self.cfg.strategy])
+
+    def _apply_mode(self) -> None:
+        """Hide the settings the chosen mode does not use.
+
+        Cash is the bot's own money only while it keeps its own books. On a
+        real exchange or a real wallet the balance is whatever the venue says
+        it is, and a "cash" box you can type into would be a lie.
         """
-        dex = bool(self.cfg.token_address)
-        key = (dex, bool(self._wide))
-        fields = (("#pair_field", "#pair_label", PAIR_LABELS, dex),
-                  ("#chain_field", "#chain_label", CHAIN_LABELS, not dex),
-                  ("#token", "#token_label", TOKEN_LABELS, not dex))
-        for field_id, label_id, labels, idle in fields:
-            field = self.query(field_id)
-            if not field:
-                continue
-            field.first().set_class(idle, "-off")
-            label = self.query(label_id)
-            if label:
-                label.first(Label).update(labels[key])
+        own_books = self.cfg.mode == "paper" or (self.cfg.mode == "sandbox"
+                                                 and self._market == "dex")
+        field = self.query("#cash_field")
+        if field:
+            field.first().set_class(not own_books, "hidden")
+
+    def _apply_market(self) -> None:
+        """Show the market you picked and hide the other one entirely.
+
+        Dimming the unused half was not enough: a greyed-out `chain: solana`
+        still looks like a setting that matters. Only one market can trade, so
+        only one is on screen.
+        """
+        dex = self._market == "dex"
+        for selector, hidden in (("#pair_field", dex),
+                                 ("#chain_field", not dex),
+                                 ("#token", not dex)):
+            field = self.query(selector)
+            if field:
+                field.first().set_class(hidden, "hidden")
 
     def _relabel_select(self, selector: str, labels: dict) -> None:
         node = self.query(selector)
@@ -454,7 +652,8 @@ class LlnxTUI(App):
             self.query_one("#cash", Input).focus()
 
     # ── the status band ─────────────────────────────────────────
-    def _market(self) -> str:
+    def _market_text(self) -> str:
+        """The market as the status band shows it: a pair, or a token on a chain."""
         c = self.cfg
         if c.token_address:
             a = c.token_address
@@ -484,10 +683,10 @@ class LlnxTUI(App):
         held = (f"[{DIM}]pos[/] [{V}]{format_amount(self._position)}[/]"
                 if self._position else f"[{DIM}]flat[/]")
         if self._short:                      # one line, everything essential
-            return (f"{self._mode_tag()}{d}{self._market()}{d}[{A}]{c.strategy}[/]"
+            return (f"{self._mode_tag()}{d}{self._market_text()}{d}[{A}]{c.strategy}[/]"
                     f"{d}[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
                     f"{d}{held}")
-        first = (f"{self._mode_tag()}   {self._market()}{d}{c.timeframe}"
+        first = (f"{self._mode_tag()}   {self._market_text()}{d}{c.timeframe}"
                  f"{d}[{A}]{c.strategy}[/]")
         money = (f"[{DIM}]equity[/] [{V}]{self._equity:.6g}[/] {self._pnl()}"
                  f"   [{DIM}]cash[/] [{V}]{self._cash:.6g}[/]   {held}")
@@ -513,23 +712,46 @@ class LlnxTUI(App):
                 return float(self.query_one(selector, Input).value)
             except (ValueError, Exception):
                 return default
+
+        def pct(selector, default=0.0):
+            return pct_out(self.query_one(selector, Input).value, default)
+
+        # the market select decides which half of the market group counts
+        self._market = self.query_one("#market", Select).value
+        token = self.query_one("#token_address", Input).value.strip()
+        if self._market == "dex":
+            self._saved_token = token
+        else:
+            token = ""            # the pair trades; the address is kept for later
+
         self.cfg = self.cfg.with_overrides(
             starting_cash=num("#cash", self.cfg.starting_cash),
             symbol=(self.query_one("#symbol", Input).value or self.cfg.symbol).upper(),
             timeframe=self.query_one("#timeframe", Select).value,
             strategy=self.query_one("#strategy", Select).value,
             mode=self.query_one("#mode", Select).value,
-            stop_loss_pct=num("#sl", 0.0),
-            take_profit_pct=num("#tp", 0.0),
-            trailing_stop_pct=num("#trail", 0.0),
             poll_interval_sec=int(num("#poll", self.cfg.poll_interval_sec)),
+            stop_loss_pct=pct("#sl"),
+            take_profit_pct=pct("#tp"),
+            trailing_stop_pct=pct("#trail"),
+            max_order_pct=pct("#max_order"),
+            max_daily_loss_pct=pct("#daily_loss"),
+            cooldown_sec=int(num("#cooldown", self.cfg.cooldown_sec)),
+            max_trades_per_day=int(num("#max_trades", self.cfg.max_trades_per_day)),
             chain=self.query_one("#chain", Select).value,
-            token_address=self.query_one("#token_address", Input).value.strip())
+            token_address=token,
+            **{name: (pct("#" + name) if name in PERCENT_FIELDS
+                      else (int(num("#" + name, getattr(self.cfg, name)))
+                            if name in INTEGER_FIELDS
+                            else num("#" + name, getattr(self.cfg, name))))
+               for name in sum(STRATEGY_FIELDS.values(), ())})
         if not self._trading:
             self._equity = self._cash = self.cfg.starting_cash
         self._refresh_status()
         self._mark_live()
-        self._mark_market()
+        self._apply_market()
+        self._apply_strategy()
+        self._apply_mode()
 
     def _mark_live(self) -> None:
         """The run button wears the mode, so live never looks like paper."""
@@ -556,12 +778,31 @@ class LlnxTUI(App):
         self._log("")
 
     # ── actions ─────────────────────────────────────────────────
+    @on(Select.Changed, "#market")
+    def _market_changed(self, event: Select.Changed) -> None:
+        """Switching back to dex puts the address you had typed back."""
+        if not self._app_ready:
+            return
+        if event.value == "dex":
+            field = self.query_one("#token_address", Input)
+            if not field.value and self._saved_token:
+                field.value = self._saved_token
+        self._sync_cfg()
+        self._resize_panel(self.size.height)
+
     @on(Select.Changed)
     @on(Input.Changed)
     def _on_change(self) -> None:
         if not self._app_ready:
             return
         self._sync_cfg()
+
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        """One line under the settings, saying what the focused field does."""
+        hint = HINTS.get(getattr(event.widget, "id", "") or "")
+        box = self.query("#hint")
+        if hint and box:
+            box.first(Static).update(hint)
 
     @on(Button.Pressed, "#backtest")
     def action_backtest(self) -> None:

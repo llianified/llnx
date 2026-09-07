@@ -164,10 +164,22 @@ Three bands, always in the same place:
   clear button) empties it without touching the run, the journal or the state.
 - **settings** — the bar at the bottom; press `t` to fold it away.
 
-Two markets share that bar and only one is ever live. Leave the token address
-empty and llnx trades the **pair** on the exchange; fill it in and it trades
-that **token on the chain** instead. Whichever half is idle is dimmed and says
-so, so `chain: solana` never sits there looking busy next to `pair: btc/usdt`.
+The settings bar only ever shows what applies right now. It is grouped into
+*what to trade*, *how it runs*, the chosen strategy's own knobs, *when to sell*
+and *when it stops itself* — and everything belonging to a choice you did not
+make is gone, not greyed out:
+
+| you choose | what disappears |
+|---|---|
+| market: exchange | the chain and the token address |
+| market: dex | the pair (the address you typed is kept for when you switch back) |
+| strategy: ema | every other strategy's parameters |
+| mode: live | the cash box — on a real venue the balance is whatever the venue says |
+
+Percentages are typed as percentages (`5`, not `0.05`), `0` means off, and the
+line under the fields explains whichever one you are standing on. The
+guardrails live here too, instead of only in `config.yaml`, so nothing invisible
+governs the bot.
 
 Desktop (120x38):
 

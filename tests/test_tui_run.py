@@ -223,59 +223,156 @@ def test_clear_does_not_stop_a_run():
     assert fake.calls == [{"mode": "paper", "confirmed": False}]
 
 
-# ── which market is live ─────────────────────────────────────────
-MARKET_FIELDS = (("#pair_field", "#pair_label"), ("#chain_field", "#chain_label"),
-                 ("#token", "#token_label"))
+# ── only what applies right now is on screen ─────────────────────
+def visible_labels(app):
+    """The label of every field the settings bar is actually showing."""
+    out = []
+    for field in app.query(".field"):
+        if not field.has_class("hidden"):
+            out.append(str(next(iter(field.query("Label"))).content))
+    return out
 
 
-def market_state(width=120, token=""):
-    """(dimmed?, label) for the pair, chain and token fields."""
+def with_app(steps, **cfg_kwargs):
     async def go():
-        app = tui.LlnxTUI(Config())
-        async with app.run_test(size=(width, 40)) as pilot:
+        app = tui.LlnxTUI(Config(**cfg_kwargs))
+        async with app.run_test(size=(120, 44)) as pilot:
             await pilot.pause(); await pilot.pause()
-            if token:
-                app.query_one("#token_address").value = token
-                for _ in range(3):
-                    await pilot.pause()
-            return [(app.query_one(f).has_class("-off"), str(app.query_one(l).content))
-                    for f, l in MARKET_FIELDS]
+            return await steps(app, pilot)
     return asyncio.run(go())
 
 
-def test_an_empty_token_address_means_the_exchange_pair_is_live():
-    pair, chain, token = market_state()
-    assert pair[0] is False                       # the pair is what trades
-    assert chain[0] is True                        # the chain is idle...
-    assert "only for a token address" in chain[1]   # ...and says why
-    assert token[0] is True
+async def settle(pilot, times=3):
+    for _ in range(times):
+        await pilot.pause()
 
 
-def test_filling_in_a_token_address_hands_the_market_to_the_chain():
-    pair, chain, token = market_state(token="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
-    assert pair[0] is True and "unused" in pair[1]
-    assert chain[0] is False and token[0] is False
-    assert "dex" in token[1]
+def test_the_exchange_market_hides_the_chain_and_the_token():
+    async def steps(app, pilot):
+        return visible_labels(app)
+    labels = with_app(steps)
+    assert "pair" in labels
+    assert "chain" not in labels and "token address" not in labels
+
+
+def test_choosing_dex_swaps_the_pair_for_a_chain_and_an_address():
+    async def steps(app, pilot):
+        app.query_one("#market").value = "dex"
+        await settle(pilot)
+        return visible_labels(app)
+    labels = with_app(steps)
+    assert "chain" in labels and "token address" in labels
+    assert "pair" not in labels
+
+
+def test_the_address_you_typed_survives_a_trip_through_the_pair():
+    address = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+
+    async def steps(app, pilot):
+        app.query_one("#market").value = "dex"
+        await settle(pilot)
+        app.query_one("#token_address").value = address
+        await settle(pilot)
+        typed = app.cfg.token_address
+        app.query_one("#market").value = "exchange"
+        await settle(pilot)
+        on_pair = app.cfg.token_address        # the pair trades, so no token
+        app.query_one("#market").value = "dex"
+        await settle(pilot, 4)
+        return typed, on_pair, app.cfg.token_address
+    typed, on_pair, back = with_app(steps)
+    assert typed == address and on_pair == "" and back == address
+
+
+def test_only_the_chosen_strategy_keeps_its_knobs_on_screen():
+    async def steps(app, pilot):
+        ema = visible_labels(app)
+        app.query_one("#strategy").value = "grid"
+        await settle(pilot)
+        return ema, visible_labels(app)
+    ema, grid = with_app(steps, strategy="ema")
+    assert "trend filter ema" in ema and "steps" not in ema
+    assert "steps" in grid and "trend filter ema" not in grid
+
+
+def test_a_strategy_you_switched_away_from_keeps_its_numbers():
+    async def steps(app, pilot):
+        app.query_one("#ema_trend").value = "150"
+        await settle(pilot)
+        app.query_one("#strategy").value = "rsi"
+        await settle(pilot)
+        return app.cfg.ema_trend, app.cfg.strategy
+    trend, strategy = with_app(steps, strategy="ema")
+    assert trend == 150 and strategy == "rsi"
+
+
+def test_live_mode_drops_the_cash_box_because_the_venue_owns_the_balance():
+    async def steps(app, pilot):
+        paper = visible_labels(app)
+        app.query_one("#mode").value = "live"
+        await settle(pilot)
+        return paper, visible_labels(app)
+    paper, live = with_app(steps)
+    assert "cash ($)" in paper and "cash ($)" not in live
+
+
+def test_a_solana_dry_run_still_keeps_its_own_cash():
+    async def steps(app, pilot):
+        app.query_one("#market").value = "dex"
+        app.query_one("#mode").value = "sandbox"
+        await settle(pilot)
+        return visible_labels(app)
+    assert "cash ($)" in with_app(steps)
+
+
+def test_percentages_are_typed_as_percentages():
+    async def steps(app, pilot):
+        app.query_one("#sl").value = "3"
+        app.query_one("#trail").value = "5"
+        app.query_one("#max_order").value = "25"
+        app.query_one("#daily_loss").value = "8"
+        await settle(pilot)
+        return app.cfg
+    cfg = with_app(steps)
+    assert cfg.stop_loss_pct == 0.03 and cfg.trailing_stop_pct == 0.05
+    assert cfg.max_order_pct == 0.25 and cfg.max_daily_loss_pct == 0.08
+
+
+def test_the_guardrails_are_editable_instead_of_hidden_in_a_file():
+    async def steps(app, pilot):
+        app.query_one("#cooldown").value = "300"
+        app.query_one("#max_trades").value = "3"
+        await settle(pilot)
+        return app.cfg
+    cfg = with_app(steps)
+    assert cfg.cooldown_sec == 300 and cfg.max_trades_per_day == 3
+
+
+def test_every_field_explains_itself_when_you_focus_it():
+    async def steps(app, pilot):
+        seen = {}
+        for name in ("cash", "poll", "trail", "daily_loss", "ema_trend"):
+            app.query_one(f"#{name}").focus()
+            await pilot.pause()
+            seen[name] = str(app.query_one("#hint").content)
+        return seen
+    hints = with_app(steps, strategy="ema")
+    assert len(set(hints.values())) == len(hints)     # each field says its own thing
+    assert "wallet balance wins" in hints["cash"]
+    assert "seconds" in hints["poll"]
 
 
 def test_the_status_band_names_the_market_that_is_live():
-    async def go():
-        app = tui.LlnxTUI(Config(symbol="ETH/USDT", chain="base"))
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause(); await pilot.pause()
-            exchange = plain(app._status())
-            app.query_one("#token_address").value = "0xabc123def456"
-            for _ in range(3):
-                await pilot.pause()
-            return exchange, plain(app._status())
-    exchange, dex = asyncio.run(go())
+    async def steps(app, pilot):
+        exchange = plain(app._status())
+        app.query_one("#market").value = "dex"
+        await settle(pilot)
+        app.query_one("#token_address").value = "0xabc123def456"
+        await settle(pilot)
+        return exchange, plain(app._status())
+    exchange, dex = with_app(steps, symbol="ETH/USDT", chain="base")
     assert "eth/usdt" in exchange and "base" not in exchange
     assert "base" in dex and "eth/usdt" not in dex
-
-
-def test_the_idle_labels_shorten_on_a_phone():
-    _, chain, _ = market_state(width=60)
-    assert chain[1] == "chain · dex only"
 
 
 # ── number formatting ────────────────────────────────────────────

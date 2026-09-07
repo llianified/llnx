@@ -33,11 +33,16 @@ def test_wide_terminal_uses_four_columns():
     assert "-wide" not in classes
 
 
-def test_settings_bar_never_takes_more_than_half_the_screen():
-    for width, height in [(120, 38), (96, 20), (45, 55), (38, 24)]:
+def test_the_settings_bar_always_leaves_room_for_the_output():
+    """It may take more than half the screen -- `t` folds it away -- but the
+    log never disappears behind it."""
+    from llnx.tui import MIN_LOG_ROWS
+    for width, height in [(120, 38), (96, 20), (45, 55), (38, 24), (120, 60)]:
         _, panel, log = sizes(width, height)
-        assert panel <= height // 2, f"settings bar too tall at {width}x{height}"
         assert log > 0, f"no room left for output at {width}x{height}"
+        if height > MIN_LOG_ROWS * 2:
+            assert log >= 4, f"output squeezed to {log} rows at {width}x{height}"
+        assert panel <= height - MIN_LOG_ROWS, f"settings too tall at {height}"
 
 
 def test_settings_bar_hides_itself_on_a_tiny_terminal():
@@ -88,6 +93,18 @@ def test_toggling_the_settings_bar():
             return hidden, app.query_one("#panel").has_class("hidden")
     hidden, back = run(go())
     assert hidden and not back
+
+
+def test_the_whole_settings_bar_fits_on_a_tall_screen():
+    """Nothing to scroll for on a desktop: every section is on screen."""
+    async def go():
+        app = LlnxTUI(Config())
+        async with app.run_test(size=(120, 44)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            fields = app.query_one("#fields")
+            return fields.virtual_size.height, fields.size.height
+    wanted, shown = run(go())
+    assert wanted <= shown, f"settings need {wanted} rows but only {shown} are shown"
 
 
 def test_strategy_labels_shrink_on_a_narrow_terminal():
