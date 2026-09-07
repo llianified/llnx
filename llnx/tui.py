@@ -400,6 +400,7 @@ class LlnxTUI(App):
         ("s", "status", "status"),
         ("x", "stop", "stop"),
         ("l", "clear", "clear"),
+        ("g", "guide", "setup"),
         ("t", "toggle_panel", "settings"),
         ("q", "quit", "quit"),
     ]
@@ -906,8 +907,10 @@ class LlnxTUI(App):
     def _run_worker(self, confirmed: bool = False) -> None:
         """One worker for every mode -- it drives the same loop as the CLI."""
         def log(line: str = "") -> None:
-            # runner output is plain text and full of [tags], so it is escaped
-            text = str(line).rstrip()
+            # Runner output is plain text and full of [tags], so it is escaped.
+            # Its own indentation goes: in this log a line is either a heading
+            # or a detail under one, and the CLI's leading spaces are neither.
+            text = str(line).strip()
             if not text or set(text) <= {"=", " "}:      # its banner rules
                 return
             self.call_from_thread(self._log, f"[{DIM}]{escape(text)}[/]")
@@ -1003,6 +1006,43 @@ class LlnxTUI(App):
         for lvl, msg in rep.flags[:8]:
             lc = {"ok": POS, "warn": WARN, "danger": NEG}.get(lvl, DIM)
             self.call_from_thread(self._log, f"  [{lc}]·[/] {escape(msg)}")
+
+    def action_guide(self) -> None:
+        """What is still between this config and a real order."""
+        from .readiness import DONE, TODO, checklist
+        self._sync_cfg()
+        market = "solana" if self.cfg.token_address else self.cfg.exchange
+        self._log("")
+        self._log(f"[{A}]going live on {market}[/] [{DIM}]· what is left to do[/]")
+        marks = {DONE: (POS, "done"), TODO: (WARN, "todo")}
+        for number, step in enumerate(checklist(self.cfg), 1):
+            colour, mark = marks.get(step.state, (DIM, "next"))
+            self._log(f"  [{DIM}]{number}[/] [{colour}]{mark:<4}[/] "
+                      f"{escape(step.title)}")
+            if step.detail:
+                self._log(f"       [{DIM}]{escape(step.detail)}[/]")
+        self._log("")
+        if self.cfg.token_address:
+            self._wallet_worker()
+
+    @work(thread=True)
+    def _wallet_worker(self) -> None:
+        """Read the wallet, once there is one to read."""
+        from .readiness import solana_probe
+        import os
+        if not (os.environ.get("SOLANA_PRIVATE_KEY")
+                and os.environ.get("SOLANA_RPC_URL")):
+            return
+        try:
+            sol, usdc = solana_probe()
+        except Exception as e:
+            self.call_from_thread(
+                self._log, f"  [{NEG}]wallet[/] [{DIM}]{escape(repr(e))}[/]")
+            return
+        colour = POS if sol >= 0.005 and usdc > 0 else WARN
+        self.call_from_thread(
+            self._log, f"  [{colour}]wallet[/] [{V}]{sol:.4f}[/] [{DIM}]SOL for gas[/]"
+                       f"   [{V}]{usdc:.2f}[/] [{DIM}]USDC to trade[/]")
 
     @on(Button.Pressed, "#clearbtn")
     def action_clear(self) -> None:
