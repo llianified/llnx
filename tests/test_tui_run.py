@@ -1,5 +1,6 @@
 """The TUI run button: paper starts, live asks first. Skipped without textual."""
 import asyncio
+import os
 
 import pytest
 
@@ -515,3 +516,94 @@ def test_the_setup_checklist_reaches_the_log():
     assert "going live on solana" in out
     assert "SOLANA_PRIVATE_KEY" in out and "then go live" in out
     assert "type the phrase" in out
+
+
+# ── typing the wallet in ─────────────────────────────────────────
+def keys_flow(tmp_path, button, market="dex"):
+    """Open the keys modal, fill it in, press a button, return what was logged."""
+    written = []
+
+    async def go():
+        app = tui.LlnxTUI(Config(token_address="MINT" if market == "dex" else ""))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            app.action_keys()
+            await settle(pilot)
+            screen = app.screen
+            masked = {i.id: i.password for i in screen.query("Input")}
+            screen.query_one("#key_SOLANA_RPC_URL").value = "https://my.rpc/x"
+            screen.query_one("#key_SOLANA_PRIVATE_KEY").value = "5JsecretKEYvalue"
+            app.logbox._history.clear()
+            screen.query_one(button).press()
+            await settle(pilot, 5)
+            written.extend(plain(line) for line in app.logbox._history)
+            return masked
+    masked = asyncio.run(go())
+    return masked, "\n".join(written)
+
+
+def test_the_private_key_is_masked_while_you_type_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SOLANA_PRIVATE_KEY", raising=False)
+    masked, _ = keys_flow(tmp_path, "#keys_session")
+    assert masked["key_SOLANA_PRIVATE_KEY"] is True
+    assert masked["key_SOLANA_RPC_URL"] is False      # an endpoint is not a secret
+
+
+def test_the_key_never_reaches_the_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SOLANA_PRIVATE_KEY", raising=False)
+    _, log = keys_flow(tmp_path, "#keys_session")
+    assert "5JsecretKEYvalue" not in log
+    assert "SOLANA_PRIVATE_KEY" in log and "hidden" in log
+
+
+def test_this_session_only_writes_nothing_to_disk(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SOLANA_PRIVATE_KEY", raising=False)
+    keys_flow(tmp_path, "#keys_session")
+    assert not (tmp_path / ".llnx.env").exists()
+    assert os.environ["SOLANA_RPC_URL"] == "https://my.rpc/x"
+
+
+def test_remembering_writes_a_file_only_you_can_read(tmp_path, monkeypatch):
+    import stat
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SOLANA_PRIVATE_KEY", raising=False)
+    _, log = keys_flow(tmp_path, "#keys_save")
+    saved = tmp_path / ".llnx.env"
+    assert saved.exists()
+    assert stat.S_IMODE(os.stat(saved).st_mode) == 0o600
+    assert "readable only by you" in log
+
+
+def test_escaping_the_modal_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SOLANA_PRIVATE_KEY", raising=False)
+
+    async def go():
+        app = tui.LlnxTUI(Config(token_address="MINT"))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            app.action_keys()
+            await settle(pilot)
+            app.logbox._history.clear()
+            await pilot.press("escape")
+            await settle(pilot)
+            return "\n".join(plain(line) for line in app.logbox._history)
+    assert "unchanged" in asyncio.run(go())
+    assert not (tmp_path / ".llnx.env").exists()
+
+
+def test_an_exchange_config_asks_for_exchange_keys(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    async def go():
+        app = tui.LlnxTUI(Config())
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(); await pilot.pause()
+            app.action_keys()
+            await settle(pilot)
+            return sorted(i.id for i in app.screen.query("Input"))
+    assert asyncio.run(go()) == ["key_EXCHANGE_API_KEY", "key_EXCHANGE_API_SECRET"]

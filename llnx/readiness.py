@@ -65,13 +65,14 @@ def solana_steps(cfg, env=None, probe: Optional[Callable] = None) -> List[Step]:
         Step(DONE if _env("SOLANA_PRIVATE_KEY", env) else TODO,
              "SOLANA_PRIVATE_KEY in the environment",
              "" if _env("SOLANA_PRIVATE_KEY", env) else
-             'export SOLANA_PRIVATE_KEY="..."   base58, and a burner wallet — '
-             "put in only what you are trading"),
+             'export SOLANA_PRIVATE_KEY="..." — or press w in the TUI and type '
+             "it there. base58, and a burner wallet: put in only what you are "
+             "trading"),
         Step(DONE if _env("SOLANA_RPC_URL", env) else TODO,
              "SOLANA_RPC_URL in the environment",
              "" if _env("SOLANA_RPC_URL", env) else
-             'export SOLANA_RPC_URL="https://..."   a private endpoint; public '
-             "ones rate-limit and drop swaps"),
+             'export SOLANA_RPC_URL="https://..." — or press w in the TUI. a '
+             "private endpoint; public ones rate-limit and drop swaps"),
     ]
     # the wallet is readable once the key and the RPC are there; whether the
     # probe can actually derive the address is its own business, and it says so
