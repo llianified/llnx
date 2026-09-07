@@ -164,10 +164,11 @@ Three bands, always in the same place:
   clear button) empties it without touching the run, the journal or the state.
 - **settings** — the bar at the bottom; press `t` to fold it away.
 
-The settings bar only ever shows what applies right now. It is grouped into
-*what to trade*, *how it runs*, the chosen strategy's own knobs, *when to sell*
-and *when it stops itself* — and everything belonging to a choice you did not
-make is gone, not greyed out:
+The settings bar is one screen per subject — `market`, `trading`, `strategy`,
+`exits`, `limits` — and you tap between them. Thirty fields at once is what a
+phone has no room for and nobody can read anyway.
+
+Within a screen, only what applies is on it. Not greyed out: gone.
 
 | you choose | what disappears |
 |---|---|
@@ -185,8 +186,13 @@ Desktop (120x38):
 
 ![TUI desktop](docs/tui.png)
 
-DEX mode — a token address takes over, the pair is dimmed out of the way, and
-prices stay readable at meme-coin scale (`0.0000182`, not `1.82e-05`):
+Each strategy's own numbers are on the `strategy` screen — and only the ones
+belonging to the strategy you picked:
+
+![TUI strategy settings](docs/tui_strategy.png)
+
+DEX mode — the token address takes over, the pair is gone, and prices stay
+readable at meme-coin scale (`0.0000182`, not `1.82e-05`):
 
 ![TUI trading a Solana token](docs/tui_dex.png)
 

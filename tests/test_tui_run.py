@@ -225,10 +225,14 @@ def test_clear_does_not_stop_a_run():
 
 # ── only what applies right now is on screen ─────────────────────
 def visible_labels(app):
-    """The label of every field the settings bar is actually showing."""
+    """The label of every field the settings bar is actually showing.
+
+    Measured, not inferred: a field is off screen either because it is hidden
+    itself or because the settings screen holding it is.
+    """
     out = []
     for field in app.query(".field"):
-        if not field.has_class("hidden"):
+        if not field.has_class("hidden") and field.size.height > 0:
             out.append(str(next(iter(field.query("Label"))).content))
     return out
 
@@ -245,6 +249,12 @@ def with_app(steps, **cfg_kwargs):
 async def settle(pilot, times=3):
     for _ in range(times):
         await pilot.pause()
+
+
+async def open_tab(app, pilot, name):
+    """Tap one of the settings tabs, the way a finger would."""
+    app.query_one(f"#tab_{name}").press()
+    await settle(pilot)
 
 
 def test_the_exchange_market_hides_the_chain_and_the_token():
@@ -286,6 +296,7 @@ def test_the_address_you_typed_survives_a_trip_through_the_pair():
 
 def test_only_the_chosen_strategy_keeps_its_knobs_on_screen():
     async def steps(app, pilot):
+        await open_tab(app, pilot, "strategy")
         ema = visible_labels(app)
         app.query_one("#strategy").value = "grid"
         await settle(pilot)
@@ -308,6 +319,7 @@ def test_a_strategy_you_switched_away_from_keeps_its_numbers():
 
 def test_live_mode_drops_the_cash_box_because_the_venue_owns_the_balance():
     async def steps(app, pilot):
+        await open_tab(app, pilot, "trading")
         paper = visible_labels(app)
         app.query_one("#mode").value = "live"
         await settle(pilot)
@@ -320,7 +332,7 @@ def test_a_solana_dry_run_still_keeps_its_own_cash():
     async def steps(app, pilot):
         app.query_one("#market").value = "dex"
         app.query_one("#mode").value = "sandbox"
-        await settle(pilot)
+        await open_tab(app, pilot, "trading")
         return visible_labels(app)
     assert "cash ($)" in with_app(steps)
 
@@ -398,3 +410,57 @@ def test_a_meme_token_price_reaches_the_log_intact():
     row = plain(rows[0])
     assert "0.0000182" in row and "1.02M" in row and "0.0000196" in row
     assert "e-05" not in row
+
+
+# ── one settings screen at a time ────────────────────────────────
+def test_the_bar_shows_one_settings_screen_at_a_time():
+    async def steps(app, pilot):
+        seen = {}
+        for name in tui.SECTIONS:
+            await open_tab(app, pilot, name)
+            seen[name] = visible_labels(app)
+        return seen
+    seen = with_app(steps, strategy="ema")
+    assert "pair" in seen["market"] and "pair" not in seen["trading"]
+    assert "mode" in seen["trading"] and "mode" not in seen["exits"]
+    assert "trend filter ema" in seen["strategy"]
+    assert "stop-loss (%)" in seen["exits"] and "cooldown (s)" not in seen["exits"]
+    assert "cooldown (s)" in seen["limits"]
+    # nothing appears on two screens at once
+    everything = [label for labels in seen.values() for label in labels]
+    assert len(everything) == len(set(everything))
+
+
+def test_the_open_tab_is_the_one_that_looks_open():
+    async def steps(app, pilot):
+        await open_tab(app, pilot, "limits")
+        return {name: app.query_one(f"#tab_{name}").has_class("-on")
+                for name in tui.SECTIONS}
+    marked = with_app(steps)
+    assert marked["limits"] is True
+    assert sum(marked.values()) == 1
+
+
+def test_switching_screens_never_buries_the_output():
+    """The settings bar takes what it needs and the log keeps the rest."""
+    async def steps(app, pilot):
+        heights = {}
+        for name in tui.SECTIONS:
+            await open_tab(app, pilot, name)
+            fields = app.query_one("#fields")
+            heights[name] = (fields.size.height, fields.virtual_size.height,
+                             app.query_one("#log").size.height)
+        return heights
+    for name, (shown, needed, log) in with_app(steps, strategy="ema").items():
+        assert shown >= needed, f"{name}: fields clipped ({shown} < {needed})"
+        assert log >= 10, f"{name}: only {log} rows left for the log"
+
+
+def test_the_status_band_admits_when_the_dex_has_no_token_yet():
+    """Picking dex must not leave the pair on show as if it were trading."""
+    async def steps(app, pilot):
+        app.query_one("#market").value = "dex"
+        await settle(pilot)
+        return plain(app._status())
+    band = with_app(steps, symbol="BTC/USDT", chain="solana")
+    assert "no token yet" in band and "btc/usdt" not in band
