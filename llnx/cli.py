@@ -6,6 +6,7 @@
   llnx optimize --csv btc.csv --sweep-trail   hunt for settings that hold up
   llnx run --mode paper --strategy grid --symbol ETH/USDT
   llnx run --mode live --yes            real orders, real money
+  llnx setup                            what live still needs from you
   llnx stop                             kill switch, from any terminal
   llnx status
 """
@@ -193,6 +194,29 @@ def cmd_status(cfg: Config, args) -> None:
                   f"{o.get('price',0):.8g}  {note}")
 
 
+def cmd_setup(cfg: Config, args) -> None:
+    """What is still between this config and a real order."""
+    from .readiness import DONE, TODO, checklist, solana_probe
+
+    market = "solana" if cfg.token_address else cfg.exchange
+    print(f"going live on {market} - what is left to do")
+    print("-" * 62)
+    marks = {DONE: "done", TODO: "TODO"}
+    for number, step in enumerate(checklist(cfg), 1):
+        print(f"  {number:>2} [{marks.get(step.state, 'next'):>4}] {step.title}")
+        if step.detail:
+            print(f"          {step.detail}")
+    if cfg.token_address and os.environ.get("SOLANA_PRIVATE_KEY") \
+            and os.environ.get("SOLANA_RPC_URL"):
+        try:
+            sol, usdc = solana_probe()
+            print(f"\n  wallet: {sol:.4f} SOL for gas, {usdc:.2f} USDC to trade")
+        except Exception as e:
+            print(f"\n  wallet: could not read it: {e!r}")
+    print("-" * 62)
+    print("  Paper, then sandbox, then live with money you can lose.")
+
+
 def cmd_stop(cfg: Config, args) -> None:
     """Kill switch: the running bot sees the file and shuts down."""
     path = cfg.kill_switch_file
@@ -315,6 +339,8 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", parents=[common], help="state, orders & history")
     st.add_argument("--orders", type=int, default=10, help="order journal rows")
 
+    sub.add_parser("setup", parents=[common],
+                   help="what this config still needs before it can trade live")
     sub.add_parser("stop", parents=[common], help="kill switch: stop a running bot")
     sub.add_parser("resume", parents=[common], help="clear the kill switch")
 
@@ -328,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS = {"backtest": cmd_backtest, "optimize": cmd_optimize, "fetch": cmd_fetch,
-            "run": cmd_run, "status": cmd_status, "stop": cmd_stop,
+            "run": cmd_run, "status": cmd_status, "setup": cmd_setup, "stop": cmd_stop,
             "resume": cmd_resume, "scan": cmd_scan, "check": cmd_check}
 
 
